@@ -2,15 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
+  where,
 } from 'firebase/firestore'
-import { LogOut, Wheat } from 'lucide-react'
+import { Download, LogOut, Trash2, Wheat } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import ConfirmModal from '../components/ConfirmModal'
 import Field from '../components/Field'
@@ -19,7 +19,7 @@ import SettingsPanel from '../components/SettingsPanel'
 import { useAuth } from '../context/AuthContext'
 import { useSettings } from '../context/SettingsContext'
 import { useToast } from '../context/ToastContext'
-import { db, isFirebaseConfigured } from '../firebase'
+import { db, exportDataToCSV, isFirebaseConfigured } from '../firebase'
 import {
   computeDashboardAggregates,
   computeEntryMetrics,
@@ -38,11 +38,18 @@ export default function AdminDashboard() {
   const [saving, setSaving] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [showTrash, setShowTrash] = useState(false) // Trash view toggle
 
   useEffect(() => {
     if (!db) return undefined
 
-    const entriesQuery = query(collection(db, 'daily_entries'), orderBy('date', 'desc'))
+    // Filtering out deleted items based on showTrash toggle
+    const entriesQuery = query(
+      collection(db, 'daily_entries'),
+      where('isDeleted', '==', showTrash),
+      orderBy('date', 'desc')
+    )
+
     const unsubscribe = onSnapshot(
       entriesQuery,
       (snapshot) => {
@@ -59,7 +66,7 @@ export default function AdminDashboard() {
     )
 
     return unsubscribe
-  }, [notify])
+  }, [notify, showTrash])
 
   const metrics = useMemo(() => computeEntryMetrics(form, settings), [form, settings])
   const aggregates = useMemo(
@@ -103,6 +110,7 @@ export default function AdminDashboard() {
     const payload = {
       date: form.date,
       ...metrics,
+      isDeleted: false, // Ensures entry starts active
       createdAt: serverTimestamp(),
     }
 
@@ -123,18 +131,36 @@ export default function AdminDashboard() {
     }
   }
 
+  // Soft Delete Function: Document Firebase se completely delete nahi hoga
   async function confirmDelete() {
     if (!pendingDelete || !db) return
     setDeleting(true)
     try {
-      await deleteDoc(doc(db, 'daily_entries', pendingDelete.id))
+      await updateDoc(doc(db, 'daily_entries', pendingDelete.id), {
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+      })
       if (editingId === pendingDelete.id) resetForm()
-      notify('Entry deleted.')
+      notify('Entry moved to Recycle Bin.')
       setPendingDelete(null)
     } catch (error) {
       notify(error.message || 'Could not delete entry.', 'error')
     } finally {
       setDeleting(false)
+    }
+  }
+
+  // Restore Function (Trash Bin View se wapas active lane ke liye)
+  async function handleRestore(id) {
+    if (!db) return
+    try {
+      await updateDoc(doc(db, 'daily_entries', id), {
+        isDeleted: false,
+        deletedAt: null,
+      })
+      notify('Entry restored successfully.')
+    } catch (error) {
+      notify(error.message || 'Could not restore entry.', 'error')
     }
   }
 
@@ -184,8 +210,30 @@ export default function AdminDashboard() {
             </span>
             Admin dashboard
           </Link>
-          <div className="flex items-center gap-3">
-            <p className="hidden text-sm text-stone-500 sm:block">{user?.email}</p>
+
+          {/* Action Buttons for Backup & Recycle Bin */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => exportDataToCSV(entries)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-stone-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              <Download className="h-3.5 w-3.5 text-stone-500" />
+              Backup CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTrash(!showTrash)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold ${
+                showTrash
+                  ? 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                  : 'border border-stone-300 bg-white text-stone-700 hover:bg-stone-50'
+              }`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {showTrash ? 'View Active Logs' : 'Recycle Bin'}
+            </button>
+            <p className="hidden text-sm text-stone-500 sm:block ml-2">{user?.email}</p>
             <button
               type="button"
               onClick={handleLogout}
@@ -205,6 +253,18 @@ export default function AdminDashboard() {
           </p>
         ) : null}
 
+        {showTrash ? (
+          <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-sm text-rose-800 flex justify-between items-center">
+            <span>Viewing deleted records (Recycle Bin). Restoring a record will return it to active history.</span>
+            <button 
+              onClick={() => setShowTrash(false)} 
+              className="font-bold underline"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        ) : null}
+
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {kpis.map((kpi) => (
             <article key={kpi.label} className={`rounded-3xl p-5 shadow-lg ${kpi.tone}`}>
@@ -215,119 +275,127 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        <section className="rounded-3xl border border-wheat-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="font-display text-2xl text-mill-900">
-                {editingId ? 'Update daily batch' : 'Daily batch entry'}
-              </h2>
-              <p className="text-sm text-stone-500">
-                Totals, electricity, karda, and profit recalculate as you type.
-              </p>
+        {!showTrash && (
+          <section className="rounded-3xl border border-wheat-200 bg-white p-6 shadow-sm">
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="font-display text-2xl text-mill-900">
+                  {editingId ? 'Update daily batch' : 'Daily batch entry'}
+                </h2>
+                <p className="text-sm text-stone-500">
+                  Totals, electricity, karda, and profit recalculate as you type.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-wheat-50 px-4 py-3 text-sm text-stone-600">
+                Ground today: <strong>{formatNumber(metrics.totalMaundsGround)} mnd</strong>
+                <span className="mx-2 text-wheat-300">·</span>
+                Gross: <strong>{formatPkr(metrics.grossIncome)}</strong>
+                <span className="mx-2 text-wheat-300">·</span>
+                Karda saved: <strong>{formatNumber(metrics.kardaSaved)} kg</strong>
+              </div>
             </div>
-            <div className="rounded-2xl bg-wheat-50 px-4 py-3 text-sm text-stone-600">
-              Ground today: <strong>{formatNumber(metrics.totalMaundsGround)} mnd</strong>
-              <span className="mx-2 text-wheat-300">·</span>
-              Gross: <strong>{formatPkr(metrics.grossIncome)}</strong>
-              <span className="mx-2 text-wheat-300">·</span>
-              Karda saved: <strong>{formatNumber(metrics.kardaSaved)} kg</strong>
-            </div>
-          </div>
 
-          <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={handleSave}>
-            <Field
-              id="date"
-              type="date"
-              label="Date"
-              hint="Business day for this mill log."
-              value={form.date}
-              onChange={(value) => updateField('date', value)}
-            />
-            <Field
-              id="custMaunds"
-              label="Customer maunds"
-              hint="Wheat brought by customers for pisai."
-              value={form.custMaunds}
-              onChange={(value) => updateField('custMaunds', value)}
-            />
-            <Field
-              id="kardaRate"
-              label="Karda rate (kg / maund)"
-              hint="Gandum deduction kept per customer maund."
-              value={form.kardaRate}
-              onChange={(value) => updateField('kardaRate', value)}
-            />
-            <Field
-              id="peenMaunds"
-              label="Peen maunds"
-              hint="Maunds processed through safai / peen."
-              value={form.peenMaunds}
-              onChange={(value) => updateField('peenMaunds', value)}
-            />
-            <Field
-              id="ownMaundsGround"
-              label="Own maunds ground"
-              hint="Mill wheat ground for flour stock. Reduces remaining inventory."
-              value={form.ownMaundsGround}
-              onChange={(value) => updateField('ownMaundsGround', value)}
-            />
-            <Field
-              id="ownProfitPerMaund"
-              label="Own profit / maund (PKR)"
-              hint="Margin earned on own flour sold, per maund ground."
-              value={form.ownProfitPerMaund}
-              onChange={(value) => updateField('ownProfitPerMaund', value)}
-            />
-            <Field
-              id="udhaarGiven"
-              label="Udhaar given today (PKR)"
-              hint="New credit extended today."
-              value={form.udhaarGiven}
-              onChange={(value) => updateField('udhaarGiven', value)}
-            />
-            <Field
-              id="udhaarRecovered"
-              label="Udhaar recovered (PKR)"
-              hint="Cash collected against previous debt today."
-              value={form.udhaarRecovered}
-              onChange={(value) => updateField('udhaarRecovered', value)}
-            />
-            <Field
-              id="otherExpenses"
-              label="Other expenses (PKR)"
-              hint="Labour, maintenance, or operational costs today."
-              value={form.otherExpenses}
-              onChange={(value) => updateField('otherExpenses', value)}
-            />
-            <div className="flex items-end gap-3 md:col-span-2 xl:col-span-3">
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-full bg-mill-800 px-6 py-3 text-sm font-semibold text-wheat-100 hover:bg-mill-700 disabled:opacity-60"
-              >
-                {saving ? 'Saving…' : editingId ? 'Update Entry' : 'Add Daily Entry'}
-              </button>
-              {editingId ? (
+            <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={handleSave}>
+              <Field
+                id="date"
+                type="date"
+                label="Date"
+                hint="Business day for this mill log."
+                value={form.date}
+                onChange={(value) => updateField('date', value)}
+              />
+              <Field
+                id="custMaunds"
+                label="Customer maunds"
+                hint="Wheat brought by customers for pisai."
+                value={form.custMaunds}
+                onChange={(value) => updateField('custMaunds', value)}
+              />
+              <Field
+                id="kardaRate"
+                label="Karda rate (kg / maund)"
+                hint="Gandum deduction kept per customer maund."
+                value={form.kardaRate}
+                onChange={(value) => updateField('kardaRate', value)}
+              />
+              <Field
+                id="peenMaunds"
+                label="Peen maunds"
+                hint="Maunds processed through safai / peen."
+                value={form.peenMaunds}
+                onChange={(value) => updateField('peenMaunds', value)}
+              />
+              <Field
+                id="ownMaundsGround"
+                label="Own maunds ground"
+                hint="Mill wheat ground for flour stock. Reduces remaining inventory."
+                value={form.ownMaundsGround}
+                onChange={(value) => updateField('ownMaundsGround', value)}
+              />
+              <Field
+                id="ownProfitPerMaund"
+                label="Own profit / maund (PKR)"
+                hint="Margin earned on own flour sold, per maund ground."
+                value={form.ownProfitPerMaund}
+                onChange={(value) => updateField('ownProfitPerMaund', value)}
+              />
+              <Field
+                id="udhaarGiven"
+                label="Udhaar given today (PKR)"
+                hint="New credit extended today."
+                value={form.udhaarGiven}
+                onChange={(value) => updateField('udhaarGiven', value)}
+              />
+              <Field
+                id="udhaarRecovered"
+                label="Udhaar recovered (PKR)"
+                hint="Cash collected against previous debt today."
+                value={form.udhaarRecovered}
+                onChange={(value) => updateField('udhaarRecovered', value)}
+              />
+              <Field
+                id="otherExpenses"
+                label="Other expenses (PKR)"
+                hint="Labour, maintenance, or operational costs today."
+                value={form.otherExpenses}
+                onChange={(value) => updateField('otherExpenses', value)}
+              />
+              <div className="flex items-end gap-3 md:col-span-2 xl:col-span-3">
                 <button
-                  type="button"
-                  onClick={resetForm}
-                  className="rounded-full px-5 py-3 text-sm font-semibold text-stone-600 hover:bg-stone-100"
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-full bg-mill-800 px-6 py-3 text-sm font-semibold text-wheat-100 hover:bg-mill-700 disabled:opacity-60"
                 >
-                  Cancel edit
+                  {saving ? 'Saving…' : editingId ? 'Update Entry' : 'Add Daily Entry'}
                 </button>
-              ) : null}
-            </div>
-          </form>
-        </section>
+                {editingId ? (
+                  <button
+                    type="button"
+                    onClick={resetForm}
+                    className="rounded-full px-5 py-3 text-sm font-semibold text-stone-600 hover:bg-stone-100"
+                  >
+                    Cancel edit
+                  </button>
+                ) : null}
+              </div>
+            </form>
+          </section>
+        )}
 
         <SettingsPanel />
-        <HistoryTable entries={entries} onEdit={startEdit} onDelete={setPendingDelete} />
+        <HistoryTable 
+          entries={entries} 
+          onEdit={startEdit} 
+          onDelete={setPendingDelete} 
+          onRestore={handleRestore}
+          isTrashView={showTrash}
+        />
       </main>
 
       <ConfirmModal
         open={Boolean(pendingDelete)}
-        title="Delete this mill day?"
-        message="This removes the Firestore document permanently. Stock and udhaar totals will recalculate without it."
+        title="Move to Recycle Bin?"
+        message="This record will be moved to the Recycle Bin. You can restore it anytime later."
         onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
         busy={deleting}
