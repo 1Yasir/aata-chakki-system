@@ -10,6 +10,7 @@ export default function Field({
   value,
   onChange,
   placeholder,
+  required = false,
 }) {
   return (
     <label className="block" htmlFor={id}>
@@ -31,6 +32,7 @@ export default function Field({
         min={type === 'number' ? min : undefined}
         value={value}
         placeholder={placeholder}
+        required={required}
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-xl border border-wheat-200 bg-white px-3 py-2.5 text-sm text-mill-900 outline-none ring-wheat-400 transition focus:border-wheat-400 focus:ring-2"
       />

@@ -10,13 +10,12 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore'
-import { Download, LogOut, Trash2, Wheat } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Download, Trash2 } from 'lucide-react'
+import AdminHeader from '../components/AdminHeader'
 import ConfirmModal from '../components/ConfirmModal'
 import Field from '../components/Field'
 import HistoryTable from '../components/HistoryTable'
 import SettingsPanel from '../components/SettingsPanel'
-import { useAuth } from '../context/AuthContext'
 import { useSettings } from '../context/SettingsContext'
 import { useToast } from '../context/ToastContext'
 import { db, exportDataToCSV, isFirebaseConfigured } from '../firebase'
@@ -29,7 +28,6 @@ import {
 } from '../lib/calculations'
 
 export default function AdminDashboard() {
-  const { user, logout } = useAuth()
   const { settings } = useSettings()
   const { notify } = useToast()
   const [entries, setEntries] = useState([])
@@ -164,15 +162,6 @@ export default function AdminDashboard() {
     }
   }
 
-  async function handleLogout() {
-    try {
-      await logout()
-      notify('Signed out.')
-    } catch (error) {
-      notify(error.message || 'Could not sign out.', 'error')
-    }
-  }
-
   const kpis = [
     {
       label: 'Remaining stock',
@@ -202,17 +191,9 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-wheat-50">
-      <header className="sticky top-0 z-40 border-b border-wheat-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
-          <Link to="/" className="flex items-center gap-2 font-display text-xl text-mill-900">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-mill-800 text-wheat-200">
-              <Wheat className="h-5 w-5" />
-            </span>
-            Admin dashboard
-          </Link>
-
-          {/* Action Buttons for Backup & Recycle Bin */}
-          <div className="flex items-center gap-2">
+      <AdminHeader
+        actions={
+          <>
             <button
               type="button"
               onClick={() => exportDataToCSV(entries)}
@@ -233,18 +214,9 @@ export default function AdminDashboard() {
               <Trash2 className="h-3.5 w-3.5" />
               {showTrash ? 'View Active Logs' : 'Recycle Bin'}
             </button>
-            <p className="hidden text-sm text-stone-500 sm:block ml-2">{user?.email}</p>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="inline-flex items-center gap-2 rounded-full bg-mill-800 px-4 py-2 text-sm font-semibold text-wheat-100 hover:bg-mill-700"
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-8">
         {!isFirebaseConfigured ? (

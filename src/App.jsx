@@ -8,6 +8,7 @@ import LandingPage from './pages/LandingPage'
 
 const Login = lazy(() => import('./pages/Login'))
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
+const CustomersPage = lazy(() => import('./pages/CustomersPage'))
 
 function PageFallback() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
                 <Route path="/login" element={<Login />} />
                 <Route element={<ProtectedRoute />}>
                   <Route path="/admin" element={<AdminDashboard />} />
+                  <Route path="/customers" element={<CustomersPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
