@@ -1,10 +1,11 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import { AuthProvider } from './context/AuthContext'
 import { SettingsProvider } from './context/SettingsContext'
 import { ToastProvider } from './context/ToastContext'
 import LandingPage from './pages/LandingPage'
+import { runDailyAutoDownloadBackup } from './lib/autoBackup'
 
 const Login = lazy(() => import('./pages/Login'))
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
@@ -22,6 +23,11 @@ function PageFallback() {
 }
 
 export default function App() {
+  useEffect(() => {
+    // App start hote hi daily auto-backup run hoga
+    runDailyAutoDownloadBackup()
+  }, [])
+
   return (
     <ToastProvider>
       <AuthProvider>

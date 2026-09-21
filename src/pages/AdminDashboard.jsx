@@ -27,6 +27,7 @@ import {
   formatPkr,
 } from '../lib/calculations'
 import { computeOwnWheatTotals } from '../lib/ownWheat'
+import { saveToLocalStorageBackup } from '../lib/autoBackup'
 
 export default function AdminDashboard() {
   const { settings } = useSettings()
@@ -39,12 +40,11 @@ export default function AdminDashboard() {
   const [saving, setSaving] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const [showTrash, setShowTrash] = useState(false) // Trash view toggle
+  const [showTrash, setShowTrash] = useState(false)
 
   useEffect(() => {
     if (!db) return undefined
 
-    // Filtering out deleted items based on showTrash toggle
     const entriesQuery = query(
       collection(db, 'daily_entries'),
       where('isDeleted', '==', showTrash),
@@ -69,7 +69,6 @@ export default function AdminDashboard() {
     return unsubscribe
   }, [notify, showTrash])
 
-  // Fetch Own Wheat entries for cross-module sync
   useEffect(() => {
     if (!db) return undefined
 
@@ -96,7 +95,6 @@ export default function AdminDashboard() {
     return unsubscribe
   }, [notify])
 
-  // Fetch Udhaar customers for cross-module sync
   useEffect(() => {
     if (!db) return undefined
 
@@ -125,10 +123,8 @@ export default function AdminDashboard() {
 
   const metrics = useMemo(() => computeEntryMetrics(form, settings), [form, settings])
   
-  // Calculate own wheat totals for cross-module sync
   const ownWheatTotals = useMemo(() => computeOwnWheatTotals(ownWheatEntries, ''), [ownWheatEntries])
   
-  // Calculate total udhaar from Udhaar Khata module
   const totalUdhaarFromLedger = useMemo(() => {
     return udhaarCustomers.reduce((sum, customer) => sum + (Number(customer.netUdhaarBalance) || 0), 0)
   }, [udhaarCustomers])
@@ -174,7 +170,7 @@ export default function AdminDashboard() {
     const payload = {
       date: form.date,
       ...metrics,
-      isDeleted: false, // Ensures entry starts active
+      isDeleted: false,
       createdAt: serverTimestamp(),
     }
 
@@ -187,6 +183,10 @@ export default function AdminDashboard() {
         await addDoc(collection(db, 'daily_entries'), payload)
         notify('Daily entry saved.')
       }
+      
+      // Auto-save fresh snapshot to LocalStorage
+      saveToLocalStorageBackup()
+
       resetForm()
     } catch (error) {
       notify(error.message || 'Could not save entry.', 'error')
@@ -195,7 +195,6 @@ export default function AdminDashboard() {
     }
   }
 
-  // Soft Delete Function: Document Firebase se completely delete nahi hoga
   async function confirmDelete() {
     if (!pendingDelete || !db) return
     setDeleting(true)
@@ -205,6 +204,10 @@ export default function AdminDashboard() {
         deletedAt: new Date().toISOString(),
       })
       if (editingId === pendingDelete.id) resetForm()
+      
+      // Auto-save fresh snapshot to LocalStorage
+      saveToLocalStorageBackup()
+
       notify('Entry moved to Recycle Bin.')
       setPendingDelete(null)
     } catch (error) {
@@ -214,7 +217,6 @@ export default function AdminDashboard() {
     }
   }
 
-  // Restore Function (Trash Bin View se wapas active lane ke liye)
   async function handleRestore(id) {
     if (!db) return
     try {
@@ -222,6 +224,10 @@ export default function AdminDashboard() {
         isDeleted: false,
         deletedAt: null,
       })
+      
+      // Auto-save fresh snapshot to LocalStorage
+      saveToLocalStorageBackup()
+
       notify('Entry restored successfully.')
     } catch (error) {
       notify(error.message || 'Could not restore entry.', 'error')

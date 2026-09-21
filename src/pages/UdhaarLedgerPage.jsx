@@ -186,7 +186,6 @@ export default function UdhaarLedgerPage() {
         .filter((tx) => tx.type === GU_WASOOLI)
         .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0)
 
-      // Get latest active transaction date
       const sortedTxs = [...customerTxs].sort((a, b) =>
         String(b.date || '').localeCompare(String(a.date || ''))
       )
@@ -344,8 +343,10 @@ export default function UdhaarLedgerPage() {
     }
   }
 
+  // UPDATED: Customer Name and Phone mapping included in Backup Export
   async function exportUdhaarData() {
     try {
+      // 1. Export Customers Master List
       exportDataToCSV(
         visibleCustomers.map(({ id, name, phone, netUdhaarBalance, createdAt, isDeleted }) => ({
           id,
@@ -357,29 +358,42 @@ export default function UdhaarLedgerPage() {
         })),
         'udhaar_customers.csv',
       )
+
+      // 2. Fetch all transactions and attach Customer Name & Phone
       const transactionsBackup = await fetchCollectionDocs(GENERAL_UDHAAR_TRANSACTIONS_COLLECTION)
-      exportDataToCSV(
-        transactionsBackup.map((tx) => ({
+      const allCustomersList = await fetchCollectionDocs(GENERAL_UDHAAR_CUSTOMERS_COLLECTION)
+      
+      const customerMap = {}
+      allCustomersList.forEach((c) => {
+        customerMap[c.id] = c
+      })
+
+      const enrichedTransactions = transactionsBackup.map((tx) => {
+        const c = customerMap[tx.customerId] || {}
+        return {
           id: tx.id,
           customerId: tx.customerId,
+          customerName: c.name || tx.name || 'Unknown',
+          customerPhone: c.phone || tx.phone || '',
           type: tx.type,
           date: tx.date,
           amount: tx.amount,
           weightKg: tx.weightKg,
           cashPaid: tx.cashPaid,
-          note: tx.note,
+          note: tx.note || '',
           isDeleted: tx.isDeleted,
           createdAt: serializeCsvValue(tx.createdAt),
-        })),
-        'udhaar_transactions.csv',
-      )
+        }
+      })
+
+      exportDataToCSV(enrichedTransactions, 'udhaar_transactions.csv')
     } catch (error) {
       notify(error.message || 'Could not export backup.', 'error')
     }
   }
 
   return (
-    <div className="min-h-screen bg-wheat-50">
+    <div className="min-h-screen bg-wheat-50 font-sans">
       <AdminHeader
         actions={
           <>
@@ -401,7 +415,7 @@ export default function UdhaarLedgerPage() {
               }`}
             >
               <Trash2 className="h-3.5 w-3.5" />
-              {showTrash ? 'View active customers' : 'Recycle Bin'}
+              {showTrash ? 'View Active Customers' : 'Recycle Bin'}
             </button>
           </>
         }
@@ -426,7 +440,7 @@ export default function UdhaarLedgerPage() {
         <section className="rounded-3xl border border-wheat-200 bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h1 className="font-display text-3xl text-mill-900">Udhaar Khata</h1>
+              <h1 className="font-display text-3xl font-bold text-mill-900">Udhaar Khata</h1>
               <p className="mt-1 text-sm text-stone-500">
                 Track daily credit sales and payment collections for general customers.
               </p>
@@ -439,7 +453,7 @@ export default function UdhaarLedgerPage() {
                     setEditingCustomer(null)
                     setFormOpen(true)
                   }}
-                  className="inline-flex items-center gap-2 rounded-full bg-mill-800 px-5 py-2.5 text-sm font-semibold text-wheat-100 hover:bg-mill-700"
+                  className="inline-flex items-center gap-2 rounded-full bg-mill-800 px-5 py-2.5 text-sm font-semibold text-wheat-100 hover:bg-mill-700 transition shadow-sm"
                 >
                   <UserPlus className="h-4 w-4" />
                   Add Customer
@@ -450,7 +464,7 @@ export default function UdhaarLedgerPage() {
                     setSelectedCustomer(null)
                     setCreditFormOpen(true)
                   }}
-                  className="inline-flex items-center gap-2 rounded-full bg-amber-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-800"
+                  className="inline-flex items-center gap-2 rounded-full bg-amber-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-800 transition shadow-sm"
                 >
                   <Plus className="h-4 w-4" />
                   Add Udhaar Entry
@@ -461,7 +475,7 @@ export default function UdhaarLedgerPage() {
 
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <div className="flex items-center gap-3.5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-800 text-amber-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-800 text-amber-100 shrink-0">
                 <Wallet className="h-5 w-5" />
               </div>
               <div>
@@ -472,7 +486,7 @@ export default function UdhaarLedgerPage() {
             </div>
 
             <div className="flex items-center gap-3.5 rounded-2xl border border-wheat-200 bg-wheat-50/60 p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mill-800 text-wheat-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mill-800 text-wheat-100 shrink-0">
                 <UserPlus className="h-5 w-5" />
               </div>
               <div>
@@ -482,7 +496,7 @@ export default function UdhaarLedgerPage() {
             </div>
 
             <div className="flex items-center gap-3.5 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-800 text-emerald-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-800 text-emerald-100 shrink-0">
                 <Banknote className="h-5 w-5" />
               </div>
               <div>
@@ -494,13 +508,13 @@ export default function UdhaarLedgerPage() {
           </div>
 
           <label className="relative mt-6 block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
             <input
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name or phone"
-              className="w-full rounded-xl border border-wheat-200 bg-wheat-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-wheat-400 focus:ring-2 focus:ring-wheat-400"
+              placeholder="Search by customer name or phone number..."
+              className="w-full rounded-xl border border-wheat-200 bg-wheat-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-wheat-400 focus:ring-2 focus:ring-wheat-400 transition"
             />
           </label>
         </section>
@@ -514,21 +528,21 @@ export default function UdhaarLedgerPage() {
         ) : (
           <section className="rounded-3xl border border-wheat-200 bg-white shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-wheat-50 border-b border-wheat-200">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead className="bg-wheat-50 border-b border-wheat-200 text-xs uppercase tracking-wide text-stone-600">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-stone-700">Date</th>
-                    <th className="px-4 py-3 text-left font-semibold text-stone-700">Customer Name</th>
-                    <th className="px-4 py-3 text-left font-semibold text-stone-700">Phone</th>
-                    <th className="px-4 py-3 text-left font-semibold text-stone-700">Weight / Items</th>
-                    <th className="px-4 py-3 text-right font-semibold text-stone-700">Cash Paid</th>
-                    <th className="px-4 py-3 text-right font-semibold text-stone-700">Udhaar Added</th>
-                    <th className="px-4 py-3 text-right font-semibold text-stone-700">Wasooli</th>
-                    <th className="px-4 py-3 text-right font-semibold text-stone-700">Net Balance</th>
-                    <th className="px-4 py-3 text-center font-semibold text-stone-700">Actions</th>
+                    <th className="px-4 py-3.5 font-bold whitespace-nowrap min-w-[110px]">Date</th>
+                    <th className="px-4 py-3.5 font-bold whitespace-nowrap min-w-[160px]">Customer Name</th>
+                    <th className="px-4 py-3.5 font-bold whitespace-nowrap min-w-[120px]">Phone</th>
+                    <th className="px-4 py-3.5 font-bold whitespace-nowrap min-w-[130px]">Weight / Items</th>
+                    <th className="px-4 py-3.5 font-bold whitespace-nowrap text-right min-w-[110px]">Cash Paid</th>
+                    <th className="px-4 py-3.5 font-bold whitespace-nowrap text-right min-w-[120px]">Udhaar Added</th>
+                    <th className="px-4 py-3.5 font-bold whitespace-nowrap text-right min-w-[110px]">Wasooli</th>
+                    <th className="px-4 py-3.5 font-bold whitespace-nowrap text-right min-w-[130px]">Net Balance</th>
+                    <th className="px-4 py-3.5 font-bold whitespace-nowrap text-center min-w-[180px]">Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-wheat-100">
                   {visibleCustomers.map((customer) => {
                     const txData = customerTransactionData[customer.id] || {
                       latestDate: todayIsoDate(),
@@ -538,44 +552,52 @@ export default function UdhaarLedgerPage() {
                       totalWasooli: 0,
                     }
                     return (
-                      <tr key={customer.id} className="border-b border-wheat-100 hover:bg-wheat-50/50">
-                        <td className="px-4 py-3 text-stone-600">{txData.latestDate}</td>
-                        <td className="px-4 py-3 font-medium text-mill-900">{customer.name}</td>
-                        <td className="px-4 py-3 text-stone-600">{customer.phone || '-'}</td>
-                        <td className="px-4 py-3 text-stone-600 font-medium">
-                          {formatWeightDisplay(txData.totalWeightKg)}
+                      <tr key={customer.id} className="hover:bg-wheat-50/50 transition">
+                        <td className="px-4 py-3.5 font-medium text-stone-800 whitespace-nowrap">
+                          {txData.latestDate}
                         </td>
-                        <td className="px-4 py-3 text-right text-stone-600">
-                          {txData.totalCashPaid > 0 ? formatPkr(txData.totalCashPaid) : '-'}
+                        <td className="px-4 py-3.5 font-semibold text-mill-900 whitespace-nowrap">
+                          {customer.name}
                         </td>
-                        <td className="px-4 py-3 text-right text-stone-600">
-                          {txData.totalUdhaarAdded > 0 ? formatPkr(txData.totalUdhaarAdded) : '-'}
+                        <td className="px-4 py-3.5 text-stone-600 whitespace-nowrap font-mono text-xs">
+                          {customer.phone || '—'}
                         </td>
-                        <td className="px-4 py-3 text-right text-stone-600">
-                          {txData.totalWasooli > 0 ? formatPkr(txData.totalWasooli) : '-'}
+                        <td className="px-4 py-3.5 text-stone-700 font-medium whitespace-nowrap">
+                          {txData.totalWeightKg > 0 ? formatWeightDisplay(txData.totalWeightKg) : '—'}
                         </td>
-                        <td className={`px-4 py-3 text-right font-semibold ${customer.netUdhaarBalance > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                        <td className="px-4 py-3.5 text-right text-stone-600 whitespace-nowrap">
+                          {txData.totalCashPaid > 0 ? formatPkr(txData.totalCashPaid) : '—'}
+                        </td>
+                        <td className="px-4 py-3.5 text-right font-medium text-stone-800 whitespace-nowrap">
+                          {txData.totalUdhaarAdded > 0 ? formatPkr(txData.totalUdhaarAdded) : '—'}
+                        </td>
+                        <td className="px-4 py-3.5 text-right font-medium text-emerald-700 whitespace-nowrap">
+                          {txData.totalWasooli > 0 ? formatPkr(txData.totalWasooli) : '—'}
+                        </td>
+                        <td className={`px-4 py-3.5 text-right font-bold whitespace-nowrap ${
+                          customer.netUdhaarBalance > 0 ? 'text-amber-800' : 'text-emerald-700'
+                        }`}>
                           {formatPkr(customer.netUdhaarBalance)}
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-center gap-1">
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
                             {showTrash ? (
                               <>
                                 <button
                                   type="button"
                                   onClick={() => handleRestoreCustomer(customer)}
-                                  className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200"
+                                  className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200 transition"
                                   title="Restore Customer"
                                 >
-                                  <RotateCcw className="h-3 w-3" /> Restore
+                                  <RotateCcw className="h-3.5 w-3.5" /> Restore
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setPendingPermanentDelete({ kind: 'customer', item: customer })}
-                                  className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-800 hover:bg-red-200"
+                                  className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-200 transition"
                                   title="Delete Permanently"
                                 >
-                                  <Trash2 className="h-3 w-3" /> Delete Permanently
+                                  <Trash2 className="h-3.5 w-3.5" /> Delete
                                 </button>
                               </>
                             ) : (
@@ -586,18 +608,18 @@ export default function UdhaarLedgerPage() {
                                     setSelectedCustomer(customer)
                                     setCreditFormOpen(true)
                                   }}
-                                  className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-200"
+                                  className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-200 transition"
                                   title="Add Udhaar"
                                 >
-                                  <Plus className="h-3 w-3" /> Add Udhaar
+                                  <Plus className="h-3.5 w-3.5" /> Udhaar
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setWasooliModal({ open: true, customer })}
-                                  className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200"
+                                  className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200 transition"
                                   title="Receive Payment"
                                 >
-                                  <Banknote className="h-3 w-3" /> Wasooli
+                                  <Banknote className="h-3.5 w-3.5" /> Wasooli
                                 </button>
                                 <button
                                   type="button"
@@ -605,10 +627,10 @@ export default function UdhaarLedgerPage() {
                                     setHistoryTrash(false)
                                     setHistoryCustomer(customer)
                                   }}
-                                  className="inline-flex items-center gap-1 rounded-full bg-wheat-100 px-2 py-1 text-xs font-semibold text-mill-800 hover:bg-wheat-200"
+                                  className="inline-flex items-center justify-center rounded-full bg-wheat-100 p-1.5 text-mill-800 hover:bg-wheat-200 transition"
                                   title="View History"
                                 >
-                                  <History className="h-3 w-3" />
+                                  <History className="h-3.5 w-3.5" />
                                 </button>
                                 <button
                                   type="button"
@@ -616,18 +638,18 @@ export default function UdhaarLedgerPage() {
                                     setEditingCustomer(customer)
                                     setFormOpen(true)
                                   }}
-                                  className="inline-flex items-center gap-1 rounded-full bg-wheat-100 px-2 py-1 text-xs font-semibold text-mill-800 hover:bg-wheat-200"
+                                  className="inline-flex items-center justify-center rounded-full bg-wheat-100 p-1.5 text-mill-800 hover:bg-wheat-200 transition"
                                   title="Edit Customer"
                                 >
-                                  <Pencil className="h-3 w-3" />
+                                  <Pencil className="h-3.5 w-3.5" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setPendingDelete({ kind: 'customer', item: customer })}
-                                  className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                  className="inline-flex items-center justify-center rounded-full bg-red-50 p-1.5 text-red-700 hover:bg-red-100 transition"
                                   title="Delete Customer"
                                 >
-                                  <Trash2 className="h-3 w-3" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               </>
                             )}

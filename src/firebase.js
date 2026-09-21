@@ -22,7 +22,7 @@ import {
 } from './lib/customerLedger'
 import { computeEmployeeLedger, EMP_FLOUR_TAKEN, resolveFlourAmount } from './lib/employees'
 import { computeGeneralUdhaarLedger, GU_WASOOLI } from './lib/generalUdhaar'
-import { OWN_PURCHASE, resolveOwnWheatAmounts } from './lib/ownWheat'
+import { OWN_PURCHASE } from './lib/ownWheat'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -319,7 +319,7 @@ export async function fetchCollectionDocs(collectionName) {
 }
 
 // ==========================================
-// OWN WHEAT (ZATI GUNDAM) HELPERS
+// OWN WHEAT (ZATI GUNDAM) HELPERS (UPDATED WITH ZERO-PAID FIX)
 // ==========================================
 
 export async function addOwnWheatEntry({
@@ -328,22 +328,35 @@ export async function addOwnWheatEntry({
   weightMaunds,
   ratePerMaund,
   totalAmount,
+  paidAmount,
   supplier,
   note,
 }) {
   assertDb()
-  const amounts = resolveOwnWheatAmounts({ weightMaunds, ratePerMaund, totalAmount })
-  if (type === OWN_PURCHASE && amounts.totalAmount <= 0) {
-    throw new Error('Enter rate per maund or total amount paid.')
+  const maunds = Number(weightMaunds) || 0
+  const weightKg = maunds * 40
+  const rate = Number(ratePerMaund) || 0
+
+  let total = Number(totalAmount) || 0
+  if (!total && maunds && rate) {
+    total = maunds * rate
   }
+
+  // Strict Paid Amount Check: Explicit 0 value must be preserved as 0
+  const paid =
+    paidAmount !== undefined && paidAmount !== null && paidAmount !== ''
+      ? Number(paidAmount)
+      : total
 
   const ref = await addDoc(collection(db, OWN_WHEAT_COLLECTION), {
     type,
-    date,
-    weightMaunds: amounts.weightMaunds,
-    weightKg: amounts.weightKg,
-    ratePerMaund: amounts.ratePerMaund,
-    totalAmount: amounts.totalAmount,
+    date: date || new Date().toISOString().slice(0, 10),
+    weightMaunds: maunds,
+    weightKg,
+    ratePerMaund: rate,
+    totalAmount: total,
+    paidAmount: paid,
+    remainingAmount: total - paid,
     supplier: String(supplier || '').trim(),
     note: String(note || '').trim(),
     isDeleted: false,
@@ -355,18 +368,29 @@ export async function addOwnWheatEntry({
 
 export async function updateOwnWheatEntry(entryId, payload) {
   assertDb()
-  const amounts = resolveOwnWheatAmounts({
-    weightMaunds: payload.weightMaunds,
-    ratePerMaund: payload.ratePerMaund,
-    totalAmount: payload.totalAmount,
-  })
+  const maunds = Number(payload.weightMaunds) || 0
+  const weightKg = maunds * 40
+  const rate = Number(payload.ratePerMaund) || 0
+
+  let total = Number(payload.totalAmount) || 0
+  if (!total && maunds && rate) {
+    total = maunds * rate
+  }
+
+  const paid =
+    payload.paidAmount !== undefined && payload.paidAmount !== null && payload.paidAmount !== ''
+      ? Number(payload.paidAmount)
+      : total
+
   await updateDoc(doc(db, OWN_WHEAT_COLLECTION, entryId), {
     type: payload.type || OWN_PURCHASE,
     date: payload.date,
-    weightMaunds: amounts.weightMaunds,
-    weightKg: amounts.weightKg,
-    ratePerMaund: amounts.ratePerMaund,
-    totalAmount: amounts.totalAmount,
+    weightMaunds: maunds,
+    weightKg,
+    ratePerMaund: rate,
+    totalAmount: total,
+    paidAmount: paid,
+    remainingAmount: total - paid,
     supplier: String(payload.supplier || '').trim(),
     note: String(payload.note || '').trim(),
   })
@@ -529,7 +553,7 @@ export async function restoreEmployeeTransaction(transactionId) {
 }
 
 // ==========================================
-// GENERAL UDHAAR HELPERS (RECALCULATES ACCURATELY)
+// GENERAL UDHAAR HELPERS
 // ==========================================
 
 async function loadActiveGeneralUdhaarTransactions(customerId) {
@@ -545,7 +569,7 @@ async function loadActiveGeneralUdhaarTransactions(customerId) {
 
 export async function recalculateGeneralUdhaarBalance(customerId) {
   assertDb()
-  const customerRef = doc(db, GENERAL_UDHAAR_CUSTOMERS_COLLECTION, customerId)
+  const customerRef = doc(doc(db, GENERAL_UDHAAR_CUSTOMERS_COLLECTION, customerId))
   const customerSnap = await getDoc(customerRef)
   if (!customerSnap.exists()) {
     throw new Error('Udhaar customer not found.')
@@ -645,7 +669,6 @@ export async function addGeneralUdhaarTransaction({
     throw new Error('Restore this customer before recording a khata entry.')
   }
 
-  // Weight exact KG mein store hoga
   const parsedWeightKg = Number(weightKg) || 0
 
   const nextTx = {
@@ -661,10 +684,7 @@ export async function addGeneralUdhaarTransaction({
     createdAt: serverTimestamp(),
   }
 
-  // Add transaction document
   await addDoc(collection(db, GENERAL_UDHAAR_TRANSACTIONS_COLLECTION), nextTx)
-
-  // Recalculate customer balance cumulatively across all active transactions
   const totals = await recalculateGeneralUdhaarBalance(resolvedCustomerId)
 
   return { ...totals, customerId: resolvedCustomerId }
