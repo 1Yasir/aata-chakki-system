@@ -1,4 +1,4 @@
-import { formatNumber, formatPkr, sumEntries } from '../lib/calculations'
+import { formatNumber, formatPkr, getTotalExpenses, sumEntries } from '../lib/calculations'
 import { Pencil, RotateCcw, Trash2 } from 'lucide-react'
 
 const columns = [
@@ -10,7 +10,8 @@ const columns = [
   { key: 'kardaSaved', label: 'Karda kg', format: (row) => formatNumber(row.kardaSaved) },
   { key: 'electricityCost', label: 'Electricity', money: true },
   { key: 'grossIncome', label: 'Gross', money: true },
-  { key: 'otherExpenses', label: 'Expenses', money: true },
+  { key: 'otherExpenses', label: 'Other exp.', money: true },
+  { key: 'totalExpenses', label: 'Total exp.', format: (row) => formatPkr(getTotalExpenses(row)) },
   { key: 'netProfit', label: 'Net', money: true },
   { key: 'udhaarGiven', label: 'Udhaar +', money: true },
   { key: 'udhaarRecovered', label: 'Recovered', money: true },
@@ -115,10 +116,11 @@ export default function HistoryTable({ entries, onEdit, onDelete, onRestore, isT
               <td className="px-4 py-3">{formatPkr(totals.electricityCost)}</td>
               <td className="px-4 py-3">{formatPkr(totals.grossIncome)}</td>
               <td className="px-4 py-3">{formatPkr(totals.otherExpenses)}</td>
+              <td className="px-4 py-3 font-semibold">{formatPkr(totals.totalExpenses)}</td>
               <td className="px-4 py-3">{formatPkr(totals.netProfit)}</td>
               <td className="px-4 py-3">{formatPkr(totals.udhaarGiven)}</td>
               <td className="px-4 py-3">{formatPkr(totals.udhaarRecovered)}</td>
-              <td className="px-4 py-3 text-wheat-300">Locked</td>
+              {/* <td className="px-4 py-3 text-wheat-300">Locked</td> */}
             </tr>
           </tfoot>
         </table>

@@ -23,6 +23,7 @@ export default function EmployeeLedgerModal({
   onClose,
   onDelete,
   onRestore,
+  onPermanentDelete,
 }) {
   if (!open || !employee) return null
 
@@ -111,13 +112,24 @@ export default function EmployeeLedgerModal({
                     <td className="whitespace-nowrap px-4 py-3 font-semibold">{formatPkr(tx.runningBalance)}</td>
                     <td className="whitespace-nowrap px-4 py-3">
                       {showTrash ? (
-                        <button
-                          type="button"
-                          onClick={() => onRestore(tx)}
-                          className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200"
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" /> Restore
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onRestore(tx)}
+                            className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" /> Restore
+                          </button>
+                          {onPermanentDelete && (
+                            <button
+                              type="button"
+                              onClick={() => onPermanentDelete(tx)}
+                              className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-200"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Delete Permanently
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <button
                           type="button"

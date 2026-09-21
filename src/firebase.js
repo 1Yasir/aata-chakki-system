@@ -257,48 +257,46 @@ export async function restoreCustomerTransaction(transactionId) {
 // DATA BACKUP & SAFETY HELPER FUNCTIONS
 // ==========================================
 
-// 1. Soft Delete: Data permanent delete nahi hoga, sirf hide ho jayega
 export const softDeleteEntry = async (collectionName, documentId) => {
   if (!db) return
   const docRef = doc(db, collectionName, documentId)
   await updateDoc(docRef, {
     isDeleted: true,
-    deletedAt: new Date().toISOString()
+    deletedAt: new Date().toISOString(),
   })
 }
 
-// 2. Restore Entry: Soft deleted record ko dobara active karne ke liye
 export const restoreEntry = async (collectionName, documentId) => {
   if (!db) return
   const docRef = doc(db, collectionName, documentId)
   await updateDoc(docRef, {
     isDeleted: false,
-    deletedAt: null
+    deletedAt: null,
   })
 }
 
-// 3. Permanent Delete: Agar Recycle bin se bhi hamesh ke liye delete karna ho
 export const hardDeleteEntry = async (collectionName, documentId) => {
   if (!db) return
   const docRef = doc(db, collectionName, documentId)
   await deleteDoc(docRef)
 }
 
-// 4. CSV Backup Generator: Single click par local Excel backup download karega
 export const exportDataToCSV = (dataList, filename = 'aata_chakki_backup.csv') => {
   if (!dataList || !dataList.length) {
-    alert("Export karne ke liye koi data nahi hai!")
+    alert('Export karne ke liye koi data nahi hai!')
     return
   }
 
   const headers = Object.keys(dataList[0]).join(',')
-  const rows = dataList.map(item => 
-    Object.values(item).map(val => `"${val !== undefined && val !== null ? val : ''}"`).join(',')
+  const rows = dataList.map((item) =>
+    Object.values(item)
+      .map((val) => `"${val !== undefined && val !== null ? val : ''}"`)
+      .join(','),
   )
 
   const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n')
   const encodedUri = encodeURI(csvContent)
-  
+
   const link = document.createElement('a')
   link.setAttribute('href', encodedUri)
   link.setAttribute('download', filename)
@@ -530,9 +528,17 @@ export async function restoreEmployeeTransaction(transactionId) {
   return recalculateEmployeeBalance(employeeId)
 }
 
-async function loadGeneralUdhaarTransactions(customerId) {
+// ==========================================
+// GENERAL UDHAAR HELPERS (RECALCULATES ACCURATELY)
+// ==========================================
+
+async function loadActiveGeneralUdhaarTransactions(customerId) {
   const snapshot = await getDocs(
-    query(collection(db, GENERAL_UDHAAR_TRANSACTIONS_COLLECTION), where('customerId', '==', customerId)),
+    query(
+      collection(db, GENERAL_UDHAAR_TRANSACTIONS_COLLECTION),
+      where('customerId', '==', customerId),
+      where('isDeleted', '==', false),
+    ),
   )
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
 }
@@ -545,8 +551,9 @@ export async function recalculateGeneralUdhaarBalance(customerId) {
     throw new Error('Udhaar customer not found.')
   }
 
-  const transactions = await loadGeneralUdhaarTransactions(customerId)
-  const totals = computeGeneralUdhaarLedger(transactions)
+  const activeTransactions = await loadActiveGeneralUdhaarTransactions(customerId)
+  const totals = computeGeneralUdhaarLedger(activeTransactions)
+
   await updateDoc(customerRef, {
     netUdhaarBalance: totals.netUdhaarBalance,
   })
@@ -571,16 +578,20 @@ export async function addGeneralUdhaarCustomer({ name, phone }) {
   return ref.id
 }
 
-export async function updateGeneralUdhaarCustomer(customerId, { name, phone }) {
+export async function updateGeneralUdhaarCustomer(customerId, { name, phone, netUdhaarBalance }) {
   assertDb()
   const trimmedName = String(name || '').trim()
   if (!trimmedName) {
     throw new Error('Customer name is required.')
   }
-  await updateDoc(doc(db, GENERAL_UDHAAR_CUSTOMERS_COLLECTION, customerId), {
+  const updateData = {
     name: trimmedName,
     phone: String(phone || '').trim(),
-  })
+  }
+  if (netUdhaarBalance !== undefined) {
+    updateData.netUdhaarBalance = Number(netUdhaarBalance) || 0
+  }
+  await updateDoc(doc(db, GENERAL_UDHAAR_CUSTOMERS_COLLECTION, customerId), updateData)
 }
 
 export async function findOrCreateGeneralUdhaarCustomer({ name, phone, customerId }) {
@@ -634,11 +645,14 @@ export async function addGeneralUdhaarTransaction({
     throw new Error('Restore this customer before recording a khata entry.')
   }
 
+  // Weight exact KG mein store hoga
+  const parsedWeightKg = Number(weightKg) || 0
+
   const nextTx = {
     customerId: resolvedCustomerId,
     type,
     amount: cashAmount,
-    weightKg: Number(weightKg) || 0,
+    weightKg: parsedWeightKg,
     cashPaid: type === GU_WASOOLI ? cashAmount : Number(cashPaid) || 0,
     date,
     note: String(note || '').trim(),
@@ -647,13 +661,13 @@ export async function addGeneralUdhaarTransaction({
     createdAt: serverTimestamp(),
   }
 
-  const transactions = await loadGeneralUdhaarTransactions(resolvedCustomerId)
-  const projected = computeGeneralUdhaarLedger([...transactions, nextTx])
+  // Add transaction document
   await addDoc(collection(db, GENERAL_UDHAAR_TRANSACTIONS_COLLECTION), nextTx)
-  await updateDoc(customerRef, {
-    netUdhaarBalance: projected.netUdhaarBalance,
-  })
-  return { ...projected, customerId: resolvedCustomerId }
+
+  // Recalculate customer balance cumulatively across all active transactions
+  const totals = await recalculateGeneralUdhaarBalance(resolvedCustomerId)
+
+  return { ...totals, customerId: resolvedCustomerId }
 }
 
 export async function softDeleteGeneralUdhaarTransaction(transactionId) {

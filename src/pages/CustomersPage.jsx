@@ -5,13 +5,12 @@ import {
   query,
   where,
 } from 'firebase/firestore'
-import { Banknote, Download, History, Minus, Pencil, Plus, RotateCcw, Search, Trash2, UserPlus, Scale, Users, Wallet } from 'lucide-react'
+import { Download, History, Minus, Pencil, Plus, RotateCcw, Search, Trash2, UserPlus, Scale, Users } from 'lucide-react'
 import AdminHeader from '../components/AdminHeader'
 import ConfirmModal from '../components/ConfirmModal'
 import CustomerFormModal from '../components/CustomerFormModal'
 import CustomerLedgerModal from '../components/CustomerLedgerModal'
 import TransactionModal from '../components/TransactionModal'
-import WasooliModal from '../components/WasooliModal'
 import { useToast } from '../context/ToastContext'
 import {
   addCustomer,
@@ -21,6 +20,7 @@ import {
   db,
   exportDataToCSV,
   fetchCollectionDocs,
+  hardDeleteEntry,
   isFirebaseConfigured,
   restoreCustomerTransaction,
   restoreEntry,
@@ -29,8 +29,8 @@ import {
   softDeleteEntry,
   updateCustomer,
 } from '../firebase'
-import { formatNumber, formatPkr } from '../lib/calculations'
-import { sortCustomersByName, TX_DEPOSIT, TX_UDHAAR, TX_WASOOLI, TX_WITHDRAWAL } from '../lib/customerLedger'
+import { formatNumber } from '../lib/calculations'
+import { sortCustomersByName, TX_DEPOSIT, TX_WITHDRAWAL } from '../lib/customerLedger'
 
 // Helper function to convert KG to Maunds (Mann)
 function formatMaundsFromKg(kg = 0) {
@@ -49,10 +49,10 @@ export default function CustomersPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState(null)
   const [txModal, setTxModal] = useState({ open: false, customer: null, type: TX_DEPOSIT })
-  const [payModal, setPayModal] = useState({ open: false, customer: null, type: TX_WASOOLI })
   const [ledgerCustomer, setLedgerCustomer] = useState(null)
   const [ledgerTrash, setLedgerTrash] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
@@ -128,10 +128,9 @@ export default function CustomersPage() {
       (acc, curr) => {
         acc.totalStockKg += Number(curr.currentStockKg || 0)
         acc.totalOpeningKg += Number(curr.initialStockKg || 0)
-        acc.totalUdhaar += Number(curr.udhaarBalance || 0)
         return acc
       },
-      { totalStockKg: 0, totalOpeningKg: 0, totalUdhaar: 0 },
+      { totalStockKg: 0, totalOpeningKg: 0 },
     )
   }, [visibleCustomers])
 
@@ -180,26 +179,6 @@ export default function CustomersPage() {
     }
   }
 
-  async function handleSavePayment(form) {
-    if (!payModal.customer) return
-    setSaving(true)
-    try {
-      await addCustomerTransaction({
-        customerId: payModal.customer.id,
-        type: form.type,
-        amount: form.amount,
-        paymentMethod: form.paymentMethod,
-        date: form.date,
-        note: form.note,
-      })
-      notify(form.type === TX_WASOOLI ? 'Wasooli recorded.' : 'Udhaar entry saved.')
-      setPayModal({ open: false, customer: null, type: TX_WASOOLI })
-    } catch (error) {
-      notify(error.message || 'Could not save payment.', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   async function confirmDelete() {
     if (!pendingDelete || !db) return
@@ -238,6 +217,28 @@ export default function CustomersPage() {
       notify('Transaction restored. Stock recalculated.')
     } catch (error) {
       notify(error.message || 'Could not restore transaction.', 'error')
+    }
+  }
+
+  async function handlePermanentDelete() {
+    if (!pendingPermanentDelete || !db) return
+    setDeleting(true)
+    try {
+      if (pendingPermanentDelete.kind === 'customer') {
+        await hardDeleteEntry(CUSTOMERS_COLLECTION, pendingPermanentDelete.item.id)
+        if (ledgerCustomer?.id === pendingPermanentDelete.item.id) {
+          setLedgerCustomer(null)
+        }
+        notify('Customer permanently deleted.')
+      } else {
+        await hardDeleteEntry(CUSTOMER_TRANSACTIONS_COLLECTION, pendingPermanentDelete.item.id)
+        notify('Transaction permanently deleted.')
+      }
+      setPendingPermanentDelete(null)
+    } catch (error) {
+      notify(error.message || 'Could not permanently delete.', 'error')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -331,7 +332,7 @@ export default function CustomersPage() {
             <div>
               <h1 className="font-display text-3xl text-mill-900">Customer wheat stock</h1>
               <p className="mt-1 text-sm text-stone-500">
-                Track Gundam deposits, Aata withdrawals, udhaar, and wasooli for each household.
+                Track Gundam deposits, Aata withdrawals, and pisai fees for each household.
               </p>
             </div>
             {!showTrash ? (
@@ -349,18 +350,8 @@ export default function CustomersPage() {
             ) : null}
           </div>
 
-          <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">
-              Market udhaar · kul wasooli baqi
-            </p>
-            <p className="font-display text-3xl font-bold text-amber-950">{formatPkr(totals.totalUdhaar)}</p>
-            <p className="mt-1 text-xs text-amber-800">
-              Live total of every visible customer’s current udhaar balance.
-            </p>
-          </div>
-
           {/* TOTAL SUMMARY BAR */}
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <div className="flex items-center gap-3.5 rounded-2xl border border-wheat-200 bg-wheat-50/60 p-4">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mill-800 text-wheat-100">
                 <Users className="h-5 w-5" />
@@ -382,18 +373,6 @@ export default function CustomersPage() {
                   <span className="ml-1 text-xs font-normal text-emerald-700">
                     ({formatNumber(totals.totalStockKg)} kg)
                   </span>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3.5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-800 text-amber-100">
-                <Wallet className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-amber-800">Total market udhaar</p>
-                <p className="font-display text-xl font-bold text-amber-950">
-                  {formatPkr(totals.totalUdhaar)}
                 </p>
               </div>
             </div>
@@ -442,27 +421,30 @@ export default function CustomersPage() {
                   </p>
                 </div>
 
-                <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-2xl bg-wheat-50 px-3 py-2">
-                    <dt className="text-xs text-stone-500">Opening stock</dt>
-                    <dd className="font-semibold text-mill-900">
-                      {formatMaundsFromKg(customer.initialStockKg)}
-                    </dd>
-                  </div>
-                  <div className="rounded-2xl bg-amber-50 px-3 py-2">
-                    <dt className="text-xs text-stone-500">Pisai udhaar</dt>
-                    <dd className="font-semibold text-amber-900">{formatPkr(customer.udhaarBalance)}</dd>
-                  </div>
+                <dl className="mt-4 rounded-2xl bg-wheat-50 px-3 py-2 text-sm">
+                  <dt className="text-xs text-stone-500">Opening stock</dt>
+                  <dd className="font-semibold text-mill-900">
+                    {formatMaundsFromKg(customer.initialStockKg)}
+                  </dd>
                 </dl>
 
                 {showTrash ? (
-                  <button
-                    type="button"
-                    onClick={() => handleRestoreCustomer(customer)}
-                    className="mt-4 inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-200"
-                  >
-                    <RotateCcw className="h-4 w-4" /> Restore customer
-                  </button>
+                  <div className="mt-4 grid gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleRestoreCustomer(customer)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-200"
+                    >
+                      <RotateCcw className="h-4 w-4" /> Restore
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingPermanentDelete({ kind: 'customer', item: customer })}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-red-100 px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-200"
+                    >
+                      <Trash2 className="h-4 w-4" /> Delete Permanently
+                    </button>
+                  </div>
                 ) : (
                   <div className="mt-4 grid gap-2">
                     <div className="grid grid-cols-2 gap-2">
@@ -481,13 +463,6 @@ export default function CustomersPage() {
                         <Minus className="h-3.5 w-3.5" /> Withdraw flour
                       </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setPayModal({ open: true, customer, type: TX_WASOOLI })}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-700 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-800"
-                    >
-                      <Banknote className="h-3.5 w-3.5" /> Receive Payment / Wasooli
-                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -545,14 +520,6 @@ export default function CustomersPage() {
         onSubmit={handleSaveTransaction}
       />
 
-      <WasooliModal
-        open={payModal.open}
-        customer={payModal.customer}
-        type={payModal.type}
-        busy={saving}
-        onClose={() => setPayModal({ open: false, customer: null, type: TX_WASOOLI })}
-        onSubmit={handleSavePayment}
-      />
 
       <CustomerLedgerModal
         open={Boolean(ledgerCustomer)}
@@ -563,10 +530,7 @@ export default function CustomersPage() {
         onClose={() => setLedgerCustomer(null)}
         onDelete={(tx) => setPendingDelete({ kind: 'transaction', item: tx })}
         onRestore={handleRestoreTransaction}
-        onAddUdhaar={() => {
-          if (!liveLedgerCustomer) return
-          setPayModal({ open: true, customer: liveLedgerCustomer, type: TX_UDHAAR })
-        }}
+        onPermanentDelete={(tx) => setPendingPermanentDelete({ kind: 'transaction', item: tx })}
       />
 
       <ConfirmModal
@@ -579,6 +543,18 @@ export default function CustomersPage() {
         }
         onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
+        busy={deleting}
+      />
+      <ConfirmModal
+        open={Boolean(pendingPermanentDelete)}
+        title="Delete Permanently?"
+        message={
+          pendingPermanentDelete?.kind === 'customer'
+            ? 'This customer and all their transactions will be permanently deleted. This action cannot be undone.'
+            : 'This transaction will be permanently deleted. This action cannot be undone.'
+        }
+        onCancel={() => setPendingPermanentDelete(null)}
+        onConfirm={handlePermanentDelete}
         busy={deleting}
       />
     </div>

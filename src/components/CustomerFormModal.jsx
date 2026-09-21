@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
 import Field from './Field'
-import { emptyCustomerForm } from '../lib/customerLedger'
 
 export default function CustomerFormModal({ open, customer, onClose, onSubmit, busy }) {
-  const [form, setForm] = useState({ name: '', phone: '', initialStockMaunds: '' })
+  const [form, setForm] = useState(() => 
+    customer
+      ? {
+          name: customer.name || '',
+          phone: customer.phone || '',
+          // Convert existing KG to Maunds for form editing
+          initialStockMaunds: customer.initialStockKg ? Number(customer.initialStockKg) / 40 : '',
+        }
+      : { name: '', phone: '', initialStockMaunds: '' }
+  )
 
   useEffect(() => {
     if (!open) return

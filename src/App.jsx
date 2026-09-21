@@ -9,6 +9,7 @@ import LandingPage from './pages/LandingPage'
 const Login = lazy(() => import('./pages/Login'))
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
 const CustomersPage = lazy(() => import('./pages/CustomersPage'))
+const UdhaarLedgerPage = lazy(() => import('./pages/UdhaarLedgerPage'))
 const OwnStockPage = lazy(() => import('./pages/OwnStockPage'))
 const EmployeesPage = lazy(() => import('./pages/EmployeesPage'))
 
@@ -33,6 +34,7 @@ export default function App() {
                 <Route element={<ProtectedRoute />}>
                   <Route path="/admin" element={<AdminDashboard />} />
                   <Route path="/customers" element={<CustomersPage />} />
+                  <Route path="/udhaar-ledger" element={<UdhaarLedgerPage />} />
                   <Route path="/own-stock" element={<OwnStockPage />} />
                   <Route path="/employees" element={<EmployeesPage />} />
                 </Route>

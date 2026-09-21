@@ -18,7 +18,7 @@ import HistoryTable from '../components/HistoryTable'
 import SettingsPanel from '../components/SettingsPanel'
 import { useSettings } from '../context/SettingsContext'
 import { useToast } from '../context/ToastContext'
-import { db, exportDataToCSV, isFirebaseConfigured } from '../firebase'
+import { db, exportDataToCSV, isFirebaseConfigured, OWN_WHEAT_COLLECTION, GENERAL_UDHAAR_CUSTOMERS_COLLECTION } from '../firebase'
 import {
   computeDashboardAggregates,
   computeEntryMetrics,
@@ -26,11 +26,14 @@ import {
   formatNumber,
   formatPkr,
 } from '../lib/calculations'
+import { computeOwnWheatTotals } from '../lib/ownWheat'
 
 export default function AdminDashboard() {
   const { settings } = useSettings()
   const { notify } = useToast()
   const [entries, setEntries] = useState([])
+  const [ownWheatEntries, setOwnWheatEntries] = useState([])
+  const [udhaarCustomers, setUdhaarCustomers] = useState([])
   const [form, setForm] = useState(emptyEntryForm())
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -66,10 +69,73 @@ export default function AdminDashboard() {
     return unsubscribe
   }, [notify, showTrash])
 
+  // Fetch Own Wheat entries for cross-module sync
+  useEffect(() => {
+    if (!db) return undefined
+
+    const ownWheatQuery = query(
+      collection(db, OWN_WHEAT_COLLECTION),
+      where('isDeleted', '==', false)
+    )
+
+    const unsubscribe = onSnapshot(
+      ownWheatQuery,
+      (snapshot) => {
+        setOwnWheatEntries(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })),
+        )
+      },
+      (error) => {
+        notify(error.message || 'Could not load own wheat entries.', 'error')
+      },
+    )
+
+    return unsubscribe
+  }, [notify])
+
+  // Fetch Udhaar customers for cross-module sync
+  useEffect(() => {
+    if (!db) return undefined
+
+    const udhaarQuery = query(
+      collection(db, GENERAL_UDHAAR_CUSTOMERS_COLLECTION),
+      where('isDeleted', '==', false)
+    )
+
+    const unsubscribe = onSnapshot(
+      udhaarQuery,
+      (snapshot) => {
+        setUdhaarCustomers(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })),
+        )
+      },
+      (error) => {
+        notify(error.message || 'Could not load udhaar customers.', 'error')
+      },
+    )
+
+    return unsubscribe
+  }, [notify])
+
   const metrics = useMemo(() => computeEntryMetrics(form, settings), [form, settings])
+  
+  // Calculate own wheat totals for cross-module sync
+  const ownWheatTotals = useMemo(() => computeOwnWheatTotals(ownWheatEntries, ''), [ownWheatEntries])
+  
+  // Calculate total udhaar from Udhaar Khata module
+  const totalUdhaarFromLedger = useMemo(() => {
+    return udhaarCustomers.reduce((sum, customer) => sum + (Number(customer.netUdhaarBalance) || 0), 0)
+  }, [udhaarCustomers])
+  
   const aggregates = useMemo(
-    () => computeDashboardAggregates(entries, settings, form, editingId),
-    [entries, settings, form, editingId],
+    () => computeDashboardAggregates(entries, settings, form, editingId, ownWheatTotals.remainingMaunds, totalUdhaarFromLedger),
+    [entries, settings, form, editingId, ownWheatTotals.remainingMaunds, totalUdhaarFromLedger],
   )
 
   function updateField(key, value) {
@@ -114,7 +180,7 @@ export default function AdminDashboard() {
 
     try {
       if (editingId) {
-        const { createdAt, ...updatePayload } = payload
+        const { createdAt: _, ...updatePayload } = payload
         await updateDoc(doc(db, 'daily_entries', editingId), updatePayload)
         notify('Daily entry updated.')
       } else {
@@ -166,13 +232,13 @@ export default function AdminDashboard() {
     {
       label: 'Remaining stock',
       value: `${formatNumber(aggregates.remainingWheatStock)} mnd`,
-      hint: 'Opening wheat minus all-time own maunds ground',
+      hint: 'Opening wheat minus own maunds ground + own wheat purchased',
       tone: 'bg-emerald-950 text-emerald-50',
     },
     {
       label: 'Total udhaar',
       value: formatPkr(aggregates.totalUdhaarBalance),
-      hint: 'Opening credit + given − recovered',
+      hint: 'Live balance from Udhaar Khata module',
       tone: 'bg-amber-950 text-amber-50',
     },
     {

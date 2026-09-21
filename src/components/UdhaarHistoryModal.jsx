@@ -1,13 +1,13 @@
 import { RotateCcw, Trash2, X } from 'lucide-react'
 import { formatNumber, formatPkr } from '../lib/calculations'
-import { computeCustomerLedger, sortTransactionsByDate, TX_DEPOSIT } from '../lib/customerLedger'
+import { buildGeneralRunningLedger, GU_UDHAAR, GU_WASOOLI, MAUND_KG } from '../lib/generalUdhaar'
 
 function formatMaundsFromKg(kg = 0) {
-  const maunds = (Number(kg) || 0) / 40
+  const maunds = (Number(kg) || 0) / MAUND_KG
   return `${formatNumber(maunds, 1)} mnd`
 }
 
-export default function CustomerLedgerModal({
+export default function UdhaarHistoryModal({
   open,
   customer,
   transactions,
@@ -20,35 +20,26 @@ export default function CustomerLedgerModal({
 }) {
   if (!open || !customer) return null
 
-  const visible = sortTransactionsByDate(
-    transactions.filter(
-      (tx) =>
-        Boolean(tx.isDeleted) === showTrash &&
-        (tx.type === TX_DEPOSIT || tx.type === 'WITHDRAWAL'),
-    ),
-  )
-  const totals = computeCustomerLedger(customer.initialStockKg, transactions)
+  const visible = buildGeneralRunningLedger(transactions, showTrash)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-mill-900/50 p-4">
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="ledger-title"
+        aria-labelledby="udhaar-ledger-title"
         className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
       >
         <div className="flex items-start justify-between gap-3 border-b border-wheat-100 px-6 py-4">
           <div>
-            <h2 id="ledger-title" className="font-display text-2xl text-mill-900">
-              {customer.name} · wheat ledger
+            <h2 id="udhaar-ledger-title" className="font-display text-2xl text-mill-900">
+              {customer.name} · udhaar ledger
             </h2>
             <p className="mt-1 text-sm text-stone-500">
-              Opening {formatMaundsFromKg(customer.initialStockKg)} ({formatNumber(customer.initialStockKg)} kg) · current{' '}
-              <strong className="text-mill-900">
-                {formatMaundsFromKg(totals.currentStockKg)} ({formatNumber(totals.currentStockKg)} kg)
-              </strong>
+              Current balance{' '}
+              <strong className="text-mill-900">{formatPkr(customer.netUdhaarBalance)}</strong>
               <span className="mx-2 text-wheat-300">·</span>
-              Pisai udhaar {formatPkr(totals.udhaarBalance)}
+              Phone: {customer.phone || 'Not provided'}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -77,7 +68,7 @@ export default function CustomerLedgerModal({
 
         {showTrash ? (
           <div className="border-b border-rose-200 bg-rose-50 px-6 py-3 text-sm text-rose-800">
-            Showing deleted wheat transactions. Restore one to include it in stock again.
+            Showing deleted udhaar transactions. Restore one to include it in balance again.
           </div>
         ) : null}
 
@@ -87,52 +78,62 @@ export default function CustomerLedgerModal({
               <tr>
                 <th className="px-4 py-3 font-semibold">Date</th>
                 <th className="px-4 py-3 font-semibold">Type</th>
-                <th className="px-4 py-3 font-semibold">Weight (Mann)</th>
-                <th className="px-4 py-3 font-semibold">Pisai fee</th>
-                <th className="px-4 py-3 font-semibold">Collection</th>
+                <th className="px-4 py-3 font-semibold">Weight</th>
+                <th className="px-4 py-3 font-semibold">Amount</th>
+                <th className="px-4 py-3 font-semibold">Cash Paid</th>
+                <th className="px-4 py-3 font-semibold">Running Balance</th>
+                <th className="px-4 py-3 font-semibold">Note</th>
                 <th className="px-4 py-3 font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody>
               {visible.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-stone-500">
+                  <td colSpan={8} className="px-4 py-10 text-center text-stone-500">
                     {showTrash
                       ? 'No deleted transactions for this customer.'
-                      : 'No deposits or withdrawals yet.'}
+                      : 'No udhaar or wasooli transactions yet.'}
                   </td>
                 </tr>
               ) : (
                 visible.map((tx) => {
-                  const isDeposit = tx.type === TX_DEPOSIT
+                  const isUdhaar = tx.type === GU_UDHAAR
+                  const isWasooli = tx.type === GU_WASOOLI
                   return (
                     <tr key={tx.id} className="border-t border-wheat-100">
                       <td className="whitespace-nowrap px-4 py-3 text-mill-900">{tx.date}</td>
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                            isDeposit ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+                            isUdhaar ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-800'
                           }`}
                         >
-                          {isDeposit ? 'Deposit' : 'Withdrawal'}
+                          {isUdhaar ? 'Udhaar' : 'Wasooli'}
                         </span>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-stone-600">
+                        {tx.weightKg > 0 ? formatMaundsFromKg(tx.weightKg) : '—'}
                       </td>
                       <td
                         className={`whitespace-nowrap px-4 py-3 font-semibold ${
-                          isDeposit ? 'text-emerald-700' : 'text-amber-800'
+                          isUdhaar ? 'text-amber-800' : 'text-emerald-700'
                         }`}
                       >
-                        {isDeposit ? '+' : '−'}
-                        {formatMaundsFromKg(tx.weightKg)}
-                        <span className="ml-1 text-xs font-normal text-stone-500">
-                          ({formatNumber(tx.weightKg)} kg)
-                        </span>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {isDeposit ? '—' : formatPkr(tx.millingFee)}
+                        {isUdhaar ? '+' : '−'}
+                        {formatPkr(tx.amount)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-stone-600">
-                        {isDeposit ? '—' : tx.feePayment === 'UDHAAR' ? 'Pisai udhaar' : 'Cash'}
+                        {tx.cashPaid > 0 ? formatPkr(tx.cashPaid) : '—'}
+                      </td>
+                      <td
+                        className={`whitespace-nowrap px-4 py-3 font-semibold ${
+                          tx.runningBalance > 0 ? 'text-amber-700' : tx.runningBalance < 0 ? 'text-emerald-700' : 'text-stone-600'
+                        }`}
+                      >
+                        {formatPkr(tx.runningBalance)}
+                      </td>
+                      <td className="px-4 py-3 text-stone-600 max-w-[200px] truncate">
+                        {tx.note || '—'}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         {showTrash ? (

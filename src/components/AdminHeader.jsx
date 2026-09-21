@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext'
 const adminLinks = [
   { to: '/admin', label: 'Daily books' },
   { to: '/customers', label: 'Wheat ledger' },
+  { to: '/udhaar-ledger', label: 'Udhaar Khata' },
   { to: '/own-stock', label: 'Own stock' },
   { to: '/employees', label: 'Employees' },
 ]

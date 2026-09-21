@@ -9,6 +9,7 @@ import {
   addOwnWheatEntry,
   db,
   exportDataToCSV,
+  hardDeleteEntry,
   isFirebaseConfigured,
   OWN_WHEAT_COLLECTION,
   restoreEntry,
@@ -41,6 +42,7 @@ export default function OwnStockPage() {
   const [showTrash, setShowTrash] = useState(false)
   const [year, setYear] = useState(String(new Date().getFullYear()))
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
@@ -145,6 +147,21 @@ export default function OwnStockPage() {
       })),
       'own_wheat_stock.csv',
     )
+  }
+
+  async function handlePermanentDelete() {
+    if (!pendingPermanentDelete || !db) return
+    setDeleting(true)
+    try {
+      await hardDeleteEntry(OWN_WHEAT_COLLECTION, pendingPermanentDelete.id)
+      if (editingId === pendingPermanentDelete.id) resetForm()
+      notify('Entry permanently deleted.')
+      setPendingPermanentDelete(null)
+    } catch (error) {
+      notify(error.message || 'Could not permanently delete entry.', 'error')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const kpis = [
@@ -381,13 +398,22 @@ export default function OwnStockPage() {
                       <td className="max-w-xs truncate px-4 py-3 text-stone-500">{row.note || '—'}</td>
                       <td className="whitespace-nowrap px-4 py-3">
                         {showTrash ? (
-                          <button
-                            type="button"
-                            onClick={() => restoreEntry(OWN_WHEAT_COLLECTION, row.id).then(() => notify('Entry restored.'))}
-                            className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200"
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" /> Restore
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => restoreEntry(OWN_WHEAT_COLLECTION, row.id).then(() => notify('Entry restored.'))}
+                              className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" /> Restore
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPendingPermanentDelete(row)}
+                              className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-200"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Delete Permanently
+                            </button>
+                          </div>
                         ) : (
                           <div className="flex gap-2">
                             <button
@@ -422,6 +448,14 @@ export default function OwnStockPage() {
         message="This own-wheat entry will be hidden and excluded from yearly totals until restored."
         onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
+        busy={deleting}
+      />
+      <ConfirmModal
+        open={Boolean(pendingPermanentDelete)}
+        title="Delete Permanently?"
+        message="This own-wheat entry will be permanently deleted. This action cannot be undone."
+        onCancel={() => setPendingPermanentDelete(null)}
+        onConfirm={handlePermanentDelete}
         busy={deleting}
       />
     </div>

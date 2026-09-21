@@ -27,6 +27,7 @@ import {
   EMPLOYEES_COLLECTION,
   exportDataToCSV,
   fetchCollectionDocs,
+  hardDeleteEntry,
   isFirebaseConfigured,
   restoreEmployeeTransaction,
   restoreEntry,
@@ -57,6 +58,7 @@ export default function EmployeesPage() {
   const [ledgerEmployee, setLedgerEmployee] = useState(null)
   const [ledgerTrash, setLedgerTrash] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
@@ -222,6 +224,26 @@ export default function EmployeesPage() {
     }
   }
 
+  async function handlePermanentDelete() {
+    if (!pendingPermanentDelete || !db) return
+    setDeleting(true)
+    try {
+      if (pendingPermanentDelete.kind === 'employee') {
+        await hardDeleteEntry(EMPLOYEES_COLLECTION, pendingPermanentDelete.item.id)
+        if (ledgerEmployee?.id === pendingPermanentDelete.item.id) setLedgerEmployee(null)
+        notify('Employee permanently deleted.')
+      } else {
+        await hardDeleteEntry(EMPLOYEE_TRANSACTIONS_COLLECTION, pendingPermanentDelete.item.id)
+        notify('Transaction permanently deleted.')
+      }
+      setPendingPermanentDelete(null)
+    } catch (error) {
+      notify(error.message || 'Could not permanently delete.', 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-wheat-50">
       <AdminHeader
@@ -360,13 +382,22 @@ export default function EmployeesPage() {
                 </div>
 
                 {showTrash ? (
-                  <button
-                    type="button"
-                    onClick={() => restoreEntry(EMPLOYEES_COLLECTION, employee.id).then(() => notify('Employee restored.'))}
-                    className="mt-4 inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-200"
-                  >
-                    <RotateCcw className="h-4 w-4" /> Restore employee
-                  </button>
+                  <div className="mt-4 grid gap-2">
+                    <button
+                      type="button"
+                      onClick={() => restoreEntry(EMPLOYEES_COLLECTION, employee.id).then(() => notify('Employee restored.'))}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-200"
+                    >
+                      <RotateCcw className="h-4 w-4" /> Restore
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingPermanentDelete({ kind: 'employee', item: employee })}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-red-100 px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-200"
+                    >
+                      <Trash2 className="h-4 w-4" /> Delete Permanently
+                    </button>
+                  </div>
                 ) : (
                   <div className="mt-4 grid gap-2">
                     <div className="grid grid-cols-2 gap-2">
@@ -460,6 +491,7 @@ export default function EmployeesPage() {
             .then(() => notify('Transaction restored.'))
             .catch((error) => notify(error.message || 'Could not restore.', 'error'))
         }
+        onPermanentDelete={(tx) => setPendingPermanentDelete({ kind: 'transaction', item: tx })}
       />
       <ConfirmModal
         open={Boolean(pendingDelete)}
@@ -471,6 +503,18 @@ export default function EmployeesPage() {
         }
         onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
+        busy={deleting}
+      />
+      <ConfirmModal
+        open={Boolean(pendingPermanentDelete)}
+        title="Delete Permanently?"
+        message={
+          pendingPermanentDelete?.kind === 'employee'
+            ? 'This employee and all their transactions will be permanently deleted. This action cannot be undone.'
+            : 'This transaction will be permanently deleted. This action cannot be undone.'
+        }
+        onCancel={() => setPendingPermanentDelete(null)}
+        onConfirm={handlePermanentDelete}
         busy={deleting}
       />
     </div>

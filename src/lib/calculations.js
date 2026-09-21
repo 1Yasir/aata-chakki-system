@@ -3,17 +3,24 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+const MAUND_KG = 40
+
 export const emptyEntryForm = () => ({
   date: new Date().toISOString().slice(0, 10),
   custMaunds: '',
-  kardaRate: '',
+  kardaRate: '2.5',
   peenMaunds: '',
   ownMaundsGround: '',
-  ownProfitPerMaund: '',
-  udhaarGiven: '',
-  udhaarRecovered: '',
-  otherExpenses: '',
+  ownProfitPerMaund: '400',
+  udhaarGiven: '0',
+  udhaarRecovered: '0',
+  otherExpenses: '500',
 })
+
+// Total Expenses = Electricity + Other Expenses
+export function getTotalExpenses(entry) {
+  return toNumber(entry.electricityCost) + toNumber(entry.otherExpenses)
+}
 
 export function computeEntryMetrics(input, settings) {
   const custMaunds = toNumber(input.custMaunds)
@@ -56,7 +63,7 @@ export function computeEntryMetrics(input, settings) {
   }
 }
 
-export function computeDashboardAggregates(entries, settings, previewEntry, editingId) {
+export function computeDashboardAggregates(entries, settings, previewEntry, editingId, ownWheatRemainingMaunds = 0, udhaarKhataTotal = 0) {
   const others = entries.filter((entry) => entry.id !== editingId)
   const previewOwn = toNumber(previewEntry.ownMaundsGround)
   const previewGiven = toNumber(previewEntry.udhaarGiven)
@@ -72,12 +79,17 @@ export function computeDashboardAggregates(entries, settings, previewEntry, edit
     others.reduce((sum, entry) => sum + toNumber(entry.udhaarRecovered), 0) +
     previewRecovered
 
+  // Cross-module sync: Add own wheat purchased to remaining stock
+  const remainingWheatStock = toNumber(settings.totalWheatStock) - cumulativeOwnMaunds + toNumber(ownWheatRemainingMaunds)
+  
+  // Cross-module sync: Use live total from Udhaar Khata module
+  const totalUdhaarBalance = udhaarKhataTotal > 0 
+    ? udhaarKhataTotal 
+    : toNumber(settings.initialUdhaar) + cumulativeUdhaarGiven - cumulativeUdhaarRecovered
+
   return {
-    remainingWheatStock: toNumber(settings.totalWheatStock) - cumulativeOwnMaunds,
-    totalUdhaarBalance:
-      toNumber(settings.initialUdhaar) +
-      cumulativeUdhaarGiven -
-      cumulativeUdhaarRecovered,
+    remainingWheatStock,
+    totalUdhaarBalance,
     cumulativeOwnMaunds,
   }
 }
@@ -91,6 +103,7 @@ export function sumEntries(entries) {
       acc.udhaarGiven += toNumber(entry.udhaarGiven)
       acc.udhaarRecovered += toNumber(entry.udhaarRecovered)
       acc.otherExpenses += toNumber(entry.otherExpenses)
+      acc.totalExpenses += getTotalExpenses(entry)
       acc.totalUnits += toNumber(entry.totalUnits)
       acc.kardaSaved += toNumber(entry.kardaSaved)
       acc.electricityCost += toNumber(entry.electricityCost)
@@ -105,6 +118,7 @@ export function sumEntries(entries) {
       udhaarGiven: 0,
       udhaarRecovered: 0,
       otherExpenses: 0,
+      totalExpenses: 0,
       totalUnits: 0,
       kardaSaved: 0,
       electricityCost: 0,
@@ -127,4 +141,11 @@ export function formatNumber(value, digits = 2) {
     minimumFractionDigits: 0,
     maximumFractionDigits: digits,
   })
+}
+
+export function formatWeightDisplay(weightKg) {
+  const kg = toNumber(weightKg)
+  if (kg <= 0) return '-'
+  if (kg < MAUND_KG) return `${formatNumber(kg)} kg`
+  return `${formatNumber(kg / MAUND_KG)} mnd (${formatNumber(kg)} kg)`
 }
