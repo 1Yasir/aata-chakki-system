@@ -6,6 +6,8 @@ import { useToast } from '../context/ToastContext'
 const adminLinks = [
   { to: '/admin', label: 'Daily books' },
   { to: '/customers', label: 'Wheat ledger' },
+  { to: '/own-stock', label: 'Own stock' },
+  { to: '/employees', label: 'Employees' },
 ]
 
 export default function AdminHeader({ actions }) {
@@ -41,6 +43,7 @@ export default function AdminHeader({ actions }) {
                     isActive ? 'bg-mill-800 text-wheat-100' : 'text-stone-600 hover:bg-white hover:text-mill-900'
                   }`
                 }
+                end={link.to === '/admin'}
               >
                 {link.label}
               </NavLink>

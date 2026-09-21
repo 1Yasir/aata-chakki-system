@@ -5,12 +5,13 @@ import {
   query,
   where,
 } from 'firebase/firestore'
-import { Download, History, Minus, Pencil, Plus, RotateCcw, Search, Trash2, UserPlus, Scale, Users, Wallet } from 'lucide-react'
+import { Banknote, Download, History, Minus, Pencil, Plus, RotateCcw, Search, Trash2, UserPlus, Scale, Users, Wallet } from 'lucide-react'
 import AdminHeader from '../components/AdminHeader'
 import ConfirmModal from '../components/ConfirmModal'
 import CustomerFormModal from '../components/CustomerFormModal'
 import CustomerLedgerModal from '../components/CustomerLedgerModal'
 import TransactionModal from '../components/TransactionModal'
+import WasooliModal from '../components/WasooliModal'
 import { useToast } from '../context/ToastContext'
 import {
   addCustomer,
@@ -19,15 +20,17 @@ import {
   CUSTOMER_TRANSACTIONS_COLLECTION,
   db,
   exportDataToCSV,
+  fetchCollectionDocs,
   isFirebaseConfigured,
   restoreCustomerTransaction,
   restoreEntry,
+  serializeCsvValue,
   softDeleteCustomerTransaction,
   softDeleteEntry,
   updateCustomer,
 } from '../firebase'
 import { formatNumber, formatPkr } from '../lib/calculations'
-import { sortCustomersByName, TX_DEPOSIT, TX_WITHDRAWAL } from '../lib/customerLedger'
+import { sortCustomersByName, TX_DEPOSIT, TX_UDHAAR, TX_WASOOLI, TX_WITHDRAWAL } from '../lib/customerLedger'
 
 // Helper function to convert KG to Maunds (Mann)
 function formatMaundsFromKg(kg = 0) {
@@ -46,6 +49,7 @@ export default function CustomersPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState(null)
   const [txModal, setTxModal] = useState({ open: false, customer: null, type: TX_DEPOSIT })
+  const [payModal, setPayModal] = useState({ open: false, customer: null, type: TX_WASOOLI })
   const [ledgerCustomer, setLedgerCustomer] = useState(null)
   const [ledgerTrash, setLedgerTrash] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
@@ -176,6 +180,27 @@ export default function CustomersPage() {
     }
   }
 
+  async function handleSavePayment(form) {
+    if (!payModal.customer) return
+    setSaving(true)
+    try {
+      await addCustomerTransaction({
+        customerId: payModal.customer.id,
+        type: form.type,
+        amount: form.amount,
+        paymentMethod: form.paymentMethod,
+        date: form.date,
+        note: form.note,
+      })
+      notify(form.type === TX_WASOOLI ? 'Wasooli recorded.' : 'Udhaar entry saved.')
+      setPayModal({ open: false, customer: null, type: TX_WASOOLI })
+    } catch (error) {
+      notify(error.message || 'Could not save payment.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function confirmDelete() {
     if (!pendingDelete || !db) return
     setDeleting(true)
@@ -216,22 +241,44 @@ export default function CustomersPage() {
     }
   }
 
-  function exportCustomers() {
-    exportDataToCSV(
-      visibleCustomers.map(({ id, name, phone, initialStockKg, currentStockKg, udhaarBalance, createdAt, isDeleted }) => ({
-        id,
-        name,
-        phone,
-        initialStockMaunds: (initialStockKg || 0) / 40,
-        initialStockKg,
-        currentStockMaunds: (currentStockKg || 0) / 40,
-        currentStockKg,
-        udhaarBalance,
-        createdAt,
-        isDeleted,
-      })),
-      'customer_wheat_ledger.csv',
-    )
+  async function exportCustomers() {
+    try {
+      exportDataToCSV(
+        visibleCustomers.map(({ id, name, phone, initialStockKg, currentStockKg, udhaarBalance, createdAt, isDeleted }) => ({
+          id,
+          name,
+          phone,
+          initialStockMaunds: (initialStockKg || 0) / 40,
+          initialStockKg,
+          currentStockMaunds: (currentStockKg || 0) / 40,
+          currentStockKg,
+          udhaarBalance,
+          createdAt: serializeCsvValue(createdAt),
+          isDeleted,
+        })),
+        'customer_wheat_ledger.csv',
+      )
+      const transactionsBackup = await fetchCollectionDocs(CUSTOMER_TRANSACTIONS_COLLECTION)
+      exportDataToCSV(
+        transactionsBackup.map((tx) => ({
+          id: tx.id,
+          customerId: tx.customerId,
+          type: tx.type,
+          date: tx.date,
+          weightKg: tx.weightKg,
+          millingFee: tx.millingFee,
+          amount: tx.amount,
+          feePayment: tx.feePayment,
+          paymentMethod: tx.paymentMethod,
+          note: tx.note,
+          isDeleted: tx.isDeleted,
+          createdAt: serializeCsvValue(tx.createdAt),
+        })),
+        'customer_transactions.csv',
+      )
+    } catch (error) {
+      notify(error.message || 'Could not export backup.', 'error')
+    }
   }
 
   return (
@@ -284,7 +331,7 @@ export default function CustomersPage() {
             <div>
               <h1 className="font-display text-3xl text-mill-900">Customer wheat stock</h1>
               <p className="mt-1 text-sm text-stone-500">
-                Track Gundam deposits and Aata withdrawals for each household (in Maunds/Mann).
+                Track Gundam deposits, Aata withdrawals, udhaar, and wasooli for each household.
               </p>
             </div>
             {!showTrash ? (
@@ -300,6 +347,16 @@ export default function CustomersPage() {
                 Add customer
               </button>
             ) : null}
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">
+              Market udhaar · kul wasooli baqi
+            </p>
+            <p className="font-display text-3xl font-bold text-amber-950">{formatPkr(totals.totalUdhaar)}</p>
+            <p className="mt-1 text-xs text-amber-800">
+              Live total of every visible customer’s current udhaar balance.
+            </p>
           </div>
 
           {/* TOTAL SUMMARY BAR */}
@@ -334,7 +391,7 @@ export default function CustomersPage() {
                 <Wallet className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-amber-800">Total Pisai Udhaar</p>
+                <p className="text-xs font-semibold text-amber-800">Total market udhaar</p>
                 <p className="font-display text-xl font-bold text-amber-950">
                   {formatPkr(totals.totalUdhaar)}
                 </p>
@@ -426,6 +483,13 @@ export default function CustomersPage() {
                     </div>
                     <button
                       type="button"
+                      onClick={() => setPayModal({ open: true, customer, type: TX_WASOOLI })}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-700 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-800"
+                    >
+                      <Banknote className="h-3.5 w-3.5" /> Receive Payment / Wasooli
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setLedgerTrash(false)
                         setLedgerCustomer(customer)
@@ -481,6 +545,15 @@ export default function CustomersPage() {
         onSubmit={handleSaveTransaction}
       />
 
+      <WasooliModal
+        open={payModal.open}
+        customer={payModal.customer}
+        type={payModal.type}
+        busy={saving}
+        onClose={() => setPayModal({ open: false, customer: null, type: TX_WASOOLI })}
+        onSubmit={handleSavePayment}
+      />
+
       <CustomerLedgerModal
         open={Boolean(ledgerCustomer)}
         customer={liveLedgerCustomer}
@@ -490,6 +563,10 @@ export default function CustomersPage() {
         onClose={() => setLedgerCustomer(null)}
         onDelete={(tx) => setPendingDelete({ kind: 'transaction', item: tx })}
         onRestore={handleRestoreTransaction}
+        onAddUdhaar={() => {
+          if (!liveLedgerCustomer) return
+          setPayModal({ open: true, customer: liveLedgerCustomer, type: TX_UDHAAR })
+        }}
       />
 
       <ConfirmModal

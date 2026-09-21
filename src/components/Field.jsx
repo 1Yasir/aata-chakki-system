@@ -25,17 +25,29 @@ export default function Field({
           </span>
         ) : null}
       </span>
-      <input
-        id={id}
-        type={type}
-        step={type === 'number' ? step : undefined}
-        min={type === 'number' ? min : undefined}
-        value={value}
-        placeholder={placeholder}
-        required={required}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-wheat-200 bg-white px-3 py-2.5 text-sm text-mill-900 outline-none ring-wheat-400 transition focus:border-wheat-400 focus:ring-2"
-      />
+      {type === 'textarea' ? (
+        <textarea
+          id={id}
+          value={value}
+          placeholder={placeholder}
+          required={required}
+          rows={3}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full rounded-xl border border-wheat-200 bg-white px-3 py-2.5 text-sm text-mill-900 outline-none ring-wheat-400 transition focus:border-wheat-400 focus:ring-2"
+        />
+      ) : (
+        <input
+          id={id}
+          type={type}
+          step={type === 'number' ? step : undefined}
+          min={type === 'number' ? min : undefined}
+          value={value}
+          placeholder={placeholder}
+          required={required}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full rounded-xl border border-wheat-200 bg-white px-3 py-2.5 text-sm text-mill-900 outline-none ring-wheat-400 transition focus:border-wheat-400 focus:ring-2"
+        />
+      )}
     </label>
   )
 }

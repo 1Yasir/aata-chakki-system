@@ -2,7 +2,6 @@ import { RotateCcw, Trash2, X } from 'lucide-react'
 import { formatNumber, formatPkr } from '../lib/calculations'
 import { computeCustomerLedger, sortTransactionsByDate, TX_DEPOSIT } from '../lib/customerLedger'
 
-// Helper function to format KG to Maunds (Mann)
 function formatMaundsFromKg(kg = 0) {
   const maunds = (Number(kg) || 0) / 40
   return `${formatNumber(maunds, 1)} mnd`
@@ -20,7 +19,13 @@ export default function CustomerLedgerModal({
 }) {
   if (!open || !customer) return null
 
-  const visible = sortTransactionsByDate(transactions.filter((tx) => Boolean(tx.isDeleted) === showTrash))
+  const visible = sortTransactionsByDate(
+    transactions.filter(
+      (tx) =>
+        Boolean(tx.isDeleted) === showTrash &&
+        (tx.type === TX_DEPOSIT || tx.type === 'WITHDRAWAL'),
+    ),
+  )
   const totals = computeCustomerLedger(customer.initialStockKg, transactions)
 
   return (
@@ -34,7 +39,7 @@ export default function CustomerLedgerModal({
         <div className="flex items-start justify-between gap-3 border-b border-wheat-100 px-6 py-4">
           <div>
             <h2 id="ledger-title" className="font-display text-2xl text-mill-900">
-              {customer.name} · ledger
+              {customer.name} · wheat ledger
             </h2>
             <p className="mt-1 text-sm text-stone-500">
               Opening {formatMaundsFromKg(customer.initialStockKg)} ({formatNumber(customer.initialStockKg)} kg) · current{' '}
@@ -42,7 +47,7 @@ export default function CustomerLedgerModal({
                 {formatMaundsFromKg(totals.currentStockKg)} ({formatNumber(totals.currentStockKg)} kg)
               </strong>
               <span className="mx-2 text-wheat-300">·</span>
-              Udhaar {formatPkr(totals.udhaarBalance)}
+              Pisai udhaar {formatPkr(totals.udhaarBalance)}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -71,7 +76,7 @@ export default function CustomerLedgerModal({
 
         {showTrash ? (
           <div className="border-b border-rose-200 bg-rose-50 px-6 py-3 text-sm text-rose-800">
-            Showing deleted transactions. Restore one to include it in stock again.
+            Showing deleted wheat transactions. Restore one to include it in stock again.
           </div>
         ) : null}
 
@@ -105,9 +110,7 @@ export default function CustomerLedgerModal({
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                            isDeposit
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-amber-100 text-amber-900'
+                            isDeposit ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
                           }`}
                         >
                           {isDeposit ? 'Deposit' : 'Withdrawal'}
@@ -128,7 +131,7 @@ export default function CustomerLedgerModal({
                         {isDeposit ? '—' : formatPkr(tx.millingFee)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-stone-600">
-                        {isDeposit ? '—' : tx.feePayment === 'UDHAAR' ? 'Udhaar' : 'Cash'}
+                        {isDeposit ? '—' : tx.feePayment === 'UDHAAR' ? 'Pisai udhaar' : 'Cash'}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         {showTrash ? (
