@@ -15,6 +15,7 @@ export const emptyOwnWheatForm = (type = OWN_PURCHASE) => ({
   weightMaunds: '',
   ratePerMaund: '',
   totalAmount: '',
+  paidAmount: '',
   supplier: '',
   note: '',
 })
@@ -51,6 +52,34 @@ export function resolveOwnWheatAmounts({ weightMaunds, ratePerMaund, totalAmount
     weightKg: weight * MAUND_KG,
     ratePerMaund: 0,
     totalAmount: 0,
+  }
+}
+
+// Single source of truth: Add aur Edit dono isi function se guzarte hain
+// taake paidAmount aur remainingAmount hamesha consistent calculate ho.
+export function resolveOwnWheatPurchase({ weightMaunds, ratePerMaund, totalAmount, paidAmount }) {
+  const maunds = toNumber(weightMaunds)
+  const weightKg = maunds * MAUND_KG
+  const rate = toNumber(ratePerMaund)
+
+  let total = toNumber(totalAmount)
+  if (!total && maunds && rate) {
+    total = maunds * rate
+  }
+
+  // paidAmount explicitly 0 bhi ho sakta hai — isliye strict check
+  const paid =
+    paidAmount !== undefined && paidAmount !== null && paidAmount !== ''
+      ? toNumber(paidAmount)
+      : total
+
+  return {
+    weightMaunds: maunds,
+    weightKg,
+    ratePerMaund: rate,
+    totalAmount: total,
+    paidAmount: paid,
+    remainingAmount: total - paid,
   }
 }
 

@@ -72,13 +72,22 @@ export default function HistoryTable({ entries, onEdit, onDelete, onRestore, isT
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex gap-2">
                       {isTrashView ? (
-                        <button
-                          type="button"
-                          onClick={() => onRestore(entry.id)}
-                          className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200"
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" /> Restore
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onRestore(entry.id)}
+                            className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-200"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" /> Restore
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDelete(entry)}
+                            className="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> Delete
+                          </button>
+                        </>
                       ) : (
                         <>
                           <button
@@ -120,7 +129,6 @@ export default function HistoryTable({ entries, onEdit, onDelete, onRestore, isT
               <td className="px-4 py-3">{formatPkr(totals.netProfit)}</td>
               <td className="px-4 py-3">{formatPkr(totals.udhaarGiven)}</td>
               <td className="px-4 py-3">{formatPkr(totals.udhaarRecovered)}</td>
-              {/* <td className="px-4 py-3 text-wheat-300">Locked</td> */}
             </tr>
           </tfoot>
         </table>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   onSnapshot,
   orderBy,
@@ -39,6 +40,7 @@ export default function AdminDashboard() {
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
 
@@ -184,9 +186,7 @@ export default function AdminDashboard() {
         notify('Daily entry saved.')
       }
       
-      // Auto-save fresh snapshot to LocalStorage
       saveToLocalStorageBackup()
-
       resetForm()
     } catch (error) {
       notify(error.message || 'Could not save entry.', 'error')
@@ -205,13 +205,30 @@ export default function AdminDashboard() {
       })
       if (editingId === pendingDelete.id) resetForm()
       
-      // Auto-save fresh snapshot to LocalStorage
       saveToLocalStorageBackup()
 
       notify('Entry moved to Recycle Bin.')
       setPendingDelete(null)
     } catch (error) {
       notify(error.message || 'Could not delete entry.', 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  async function handlePermanentDelete() {
+    if (!pendingPermanentDelete || !db) return
+    setDeleting(true)
+    try {
+      await deleteDoc(doc(db, 'daily_entries', pendingPermanentDelete.id))
+      if (editingId === pendingPermanentDelete.id) resetForm()
+      
+      saveToLocalStorageBackup()
+
+      notify('Entry permanently deleted.')
+      setPendingPermanentDelete(null)
+    } catch (error) {
+      notify(error.message || 'Could not permanently delete entry.', 'error')
     } finally {
       setDeleting(false)
     }
@@ -225,7 +242,6 @@ export default function AdminDashboard() {
         deletedAt: null,
       })
       
-      // Auto-save fresh snapshot to LocalStorage
       saveToLocalStorageBackup()
 
       notify('Entry restored successfully.')
@@ -233,6 +249,17 @@ export default function AdminDashboard() {
       notify(error.message || 'Could not restore entry.', 'error')
     }
   }
+
+  const todayStr = form.date || new Date().toISOString().slice(0, 10)
+  const existingTodayEntry = entries.find((e) => e.date === todayStr && e.id !== editingId)
+  
+  const liveNetProfit = existingTodayEntry && !editingId && form.custMaunds === '' 
+    ? Number(existingTodayEntry.netProfit) || 0 
+    : metrics.netProfit
+
+  const liveUnitsConsumed = existingTodayEntry && !editingId && form.custMaunds === '' 
+    ? Number(existingTodayEntry.totalUnits) || 0 
+    : metrics.totalUnits
 
   const kpis = [
     {
@@ -249,13 +276,13 @@ export default function AdminDashboard() {
     },
     {
       label: 'Net profit (today)',
-      value: formatPkr(metrics.netProfit),
+      value: formatPkr(liveNetProfit),
       hint: 'Gross income minus electricity and other expenses',
       tone: 'bg-mill-800 text-wheat-50',
     },
     {
       label: 'Units consumed (today)',
-      value: formatNumber(metrics.totalUnits),
+      value: formatNumber(liveUnitsConsumed),
       hint: 'Total maunds ground × units per maund',
       tone: 'bg-sky-950 text-sky-50',
     },
@@ -299,7 +326,7 @@ export default function AdminDashboard() {
 
         {showTrash ? (
           <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4 text-sm text-rose-800 flex justify-between items-center">
-            <span>Viewing deleted records (Recycle Bin). Restoring a record will return it to active history.</span>
+            <span>Viewing deleted records (Recycle Bin). Restoring a record will return it to active history, or you can delete permanently.</span>
             <button 
               onClick={() => setShowTrash(false)} 
               className="font-bold underline"
@@ -430,7 +457,7 @@ export default function AdminDashboard() {
         <HistoryTable 
           entries={entries} 
           onEdit={startEdit} 
-          onDelete={setPendingDelete} 
+          onDelete={showTrash ? setPendingPermanentDelete : setPendingDelete} 
           onRestore={handleRestore}
           isTrashView={showTrash}
         />
@@ -442,6 +469,15 @@ export default function AdminDashboard() {
         message="This record will be moved to the Recycle Bin. You can restore it anytime later."
         onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
+        busy={deleting}
+      />
+
+      <ConfirmModal
+        open={Boolean(pendingPermanentDelete)}
+        title="Delete Permanently?"
+        message="This record will be permanently deleted from the database. This action cannot be undone."
+        onCancel={() => setPendingPermanentDelete(null)}
+        onConfirm={handlePermanentDelete}
         busy={deleting}
       />
     </div>

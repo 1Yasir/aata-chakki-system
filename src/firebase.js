@@ -22,7 +22,7 @@ import {
 } from './lib/customerLedger'
 import { computeEmployeeLedger, EMP_FLOUR_TAKEN, resolveFlourAmount } from './lib/employees'
 import { computeGeneralUdhaarLedger, GU_WASOOLI } from './lib/generalUdhaar'
-import { OWN_PURCHASE } from './lib/ownWheat'
+import { OWN_PURCHASE, resolveOwnWheatPurchase } from './lib/ownWheat'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -333,29 +333,12 @@ export async function addOwnWheatEntry({
   note,
 }) {
   assertDb()
-  const maunds = Number(weightMaunds) || 0
-  const weightKg = maunds * 40
-  const rate = Number(ratePerMaund) || 0
-
-  let total = Number(totalAmount) || 0
-  if (!total && maunds && rate) {
-    total = maunds * rate
-  }
-
-  const paid =
-    paidAmount !== undefined && paidAmount !== null && paidAmount !== ''
-      ? Number(paidAmount)
-      : total
+  const resolved = resolveOwnWheatPurchase({ weightMaunds, ratePerMaund, totalAmount, paidAmount })
 
   const ref = await addDoc(collection(db, OWN_WHEAT_COLLECTION), {
     type,
     date: date || new Date().toISOString().slice(0, 10),
-    weightMaunds: maunds,
-    weightKg,
-    ratePerMaund: rate,
-    totalAmount: total,
-    paidAmount: paid,
-    remainingAmount: total - paid,
+    ...resolved,
     supplier: String(supplier || '').trim(),
     note: String(note || '').trim(),
     isDeleted: false,
@@ -376,38 +359,28 @@ export async function updateOwnWheatEntry(entryId, payload) {
   
   const existingData = docSnap.data()
 
-  // Agar weight ya rate diya gaya hai toh naye hisaab se total calculate karein, warna purana use karein
-  const maunds = payload.weightMaunds !== undefined ? Number(payload.weightMaunds) || 0 : existingData.weightMaunds
-  const weightKg = maunds * 40
-  const rate = payload.ratePerMaund !== undefined ? Number(payload.ratePerMaund) || 0 : existingData.ratePerMaund
-
-  let total = payload.totalAmount !== undefined ? Number(payload.totalAmount) || 0 : existingData.totalAmount
-  if (!total && maunds && rate) {
-    total = maunds * rate
-  }
-
-  const paid = payload.paidAmount !== undefined ? Number(payload.paidAmount) || 0 : existingData.paidAmount
+  const resolved = resolveOwnWheatPurchase({
+    weightMaunds: payload.weightMaunds !== undefined ? payload.weightMaunds : existingData.weightMaunds,
+    ratePerMaund: payload.ratePerMaund !== undefined ? payload.ratePerMaund : existingData.ratePerMaund,
+    totalAmount: payload.totalAmount !== undefined ? payload.totalAmount : existingData.totalAmount,
+    paidAmount: payload.paidAmount !== undefined ? payload.paidAmount : existingData.paidAmount,
+  })
 
   const updateData = {
     type: payload.type || existingData.type || OWN_PURCHASE,
     date: payload.date || existingData.date || new Date().toISOString().slice(0, 10),
-    weightMaunds: maunds,
-    weightKg,
-    ratePerMaund: rate,
-    totalAmount: total,
-    paidAmount: paid,
-    remainingAmount: total - paid,
+    ...resolved,
     supplier: payload.supplier !== undefined ? String(payload.supplier || '').trim() : existingData.supplier,
     note: payload.note !== undefined ? String(payload.note || '').trim() : existingData.note,
   }
 
-  // Agar transactions array bheja gaya hai toh usay update mein shamil karein
   if (payload.transactions !== undefined) {
     updateData.transactions = payload.transactions
   }
 
   await updateDoc(docRef, updateData)
 }
+
 // ==========================================
 // EMPLOYEE HELPERS
 // ==========================================
@@ -534,7 +507,7 @@ export async function addEmployeeTransaction({
 
 export async function softDeleteEmployeeTransaction(transactionId) {
   assertDb()
-  const txRef = doc(db, EMPLOYEE_TRANSATRANSACTIONS_COLLECTION || EMPLOYEE_TRANSACTIONS_COLLECTION, transactionId)
+  const txRef = doc(db, EMPLOYEE_TRANSACTIONS_COLLECTION, transactionId)
   const txSnap = await getDoc(txRef)
   if (!txSnap.exists()) {
     throw new Error('Transaction not found.')
@@ -581,7 +554,6 @@ async function loadActiveGeneralUdhaarTransactions(customerId) {
 
 export async function recalculateGeneralUdhaarBalance(customerId) {
   assertDb()
-  // FIX APPLIED HERE: Only one doc() wrapper used correctly
   const customerRef = doc(db, GENERAL_UDHAAR_CUSTOMERS_COLLECTION, customerId)
   const customerSnap = await getDoc(customerRef)
   if (!customerSnap.exists()) {
