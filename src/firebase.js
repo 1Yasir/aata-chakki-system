@@ -319,7 +319,7 @@ export async function fetchCollectionDocs(collectionName) {
 }
 
 // ==========================================
-// OWN WHEAT (ZATI GUNDAM) HELPERS (UPDATED WITH ZERO-PAID FIX)
+// OWN WHEAT (ZATI GUNDAM) HELPERS
 // ==========================================
 
 export async function addOwnWheatEntry({
@@ -342,7 +342,6 @@ export async function addOwnWheatEntry({
     total = maunds * rate
   }
 
-  // Strict Paid Amount Check: Explicit 0 value must be preserved as 0
   const paid =
     paidAmount !== undefined && paidAmount !== null && paidAmount !== ''
       ? Number(paidAmount)
@@ -368,34 +367,47 @@ export async function addOwnWheatEntry({
 
 export async function updateOwnWheatEntry(entryId, payload) {
   assertDb()
-  const maunds = Number(payload.weightMaunds) || 0
-  const weightKg = maunds * 40
-  const rate = Number(payload.ratePerMaund) || 0
+  const docRef = doc(db, OWN_WHEAT_COLLECTION, entryId)
+  const docSnap = await getDoc(docRef)
+  
+  if (!docSnap.exists()) {
+    throw new Error('Entry not found.')
+  }
+  
+  const existingData = docSnap.data()
 
-  let total = Number(payload.totalAmount) || 0
+  // Agar weight ya rate diya gaya hai toh naye hisaab se total calculate karein, warna purana use karein
+  const maunds = payload.weightMaunds !== undefined ? Number(payload.weightMaunds) || 0 : existingData.weightMaunds
+  const weightKg = maunds * 40
+  const rate = payload.ratePerMaund !== undefined ? Number(payload.ratePerMaund) || 0 : existingData.ratePerMaund
+
+  let total = payload.totalAmount !== undefined ? Number(payload.totalAmount) || 0 : existingData.totalAmount
   if (!total && maunds && rate) {
     total = maunds * rate
   }
 
-  const paid =
-    payload.paidAmount !== undefined && payload.paidAmount !== null && payload.paidAmount !== ''
-      ? Number(payload.paidAmount)
-      : total
+  const paid = payload.paidAmount !== undefined ? Number(payload.paidAmount) || 0 : existingData.paidAmount
 
-  await updateDoc(doc(db, OWN_WHEAT_COLLECTION, entryId), {
-    type: payload.type || OWN_PURCHASE,
-    date: payload.date,
+  const updateData = {
+    type: payload.type || existingData.type || OWN_PURCHASE,
+    date: payload.date || existingData.date || new Date().toISOString().slice(0, 10),
     weightMaunds: maunds,
     weightKg,
     ratePerMaund: rate,
     totalAmount: total,
     paidAmount: paid,
     remainingAmount: total - paid,
-    supplier: String(payload.supplier || '').trim(),
-    note: String(payload.note || '').trim(),
-  })
-}
+    supplier: payload.supplier !== undefined ? String(payload.supplier || '').trim() : existingData.supplier,
+    note: payload.note !== undefined ? String(payload.note || '').trim() : existingData.note,
+  }
 
+  // Agar transactions array bheja gaya hai toh usay update mein shamil karein
+  if (payload.transactions !== undefined) {
+    updateData.transactions = payload.transactions
+  }
+
+  await updateDoc(docRef, updateData)
+}
 // ==========================================
 // EMPLOYEE HELPERS
 // ==========================================
@@ -522,7 +534,7 @@ export async function addEmployeeTransaction({
 
 export async function softDeleteEmployeeTransaction(transactionId) {
   assertDb()
-  const txRef = doc(db, EMPLOYEE_TRANSACTIONS_COLLECTION, transactionId)
+  const txRef = doc(db, EMPLOYEE_TRANSATRANSACTIONS_COLLECTION || EMPLOYEE_TRANSACTIONS_COLLECTION, transactionId)
   const txSnap = await getDoc(txRef)
   if (!txSnap.exists()) {
     throw new Error('Transaction not found.')
@@ -569,7 +581,8 @@ async function loadActiveGeneralUdhaarTransactions(customerId) {
 
 export async function recalculateGeneralUdhaarBalance(customerId) {
   assertDb()
-  const customerRef = doc(doc(db, GENERAL_UDHAAR_CUSTOMERS_COLLECTION, customerId))
+  // FIX APPLIED HERE: Only one doc() wrapper used correctly
+  const customerRef = doc(db, GENERAL_UDHAAR_CUSTOMERS_COLLECTION, customerId)
   const customerSnap = await getDoc(customerRef)
   if (!customerSnap.exists()) {
     throw new Error('Udhaar customer not found.')

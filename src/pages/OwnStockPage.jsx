@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
-import { Download, Pencil, RotateCcw, Trash2, Warehouse } from 'lucide-react'
+import { CreditCard, Download, History, Pencil, RotateCcw, Trash2, Warehouse } from 'lucide-react'
 import AdminHeader from '../components/AdminHeader'
 import ConfirmModal from '../components/ConfirmModal'
 import Field from '../components/Field'
@@ -30,6 +30,16 @@ export default function OwnStockPage() {
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Additional Payment Modal State
+  const [paymentModalRow, setPaymentModalRow] = useState(null)
+  const [additionalPayment, setAdditionalPayment] = useState('')
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
+  const [paymentNote, setPaymentNote] = useState('')
+  const [paying, setPaying] = useState(false)
+
+  // History Modal State to view past payments
+  const [historyModalRow, setHistoryModalRow] = useState(null)
 
   // Form State
   const [form, setForm] = useState({
@@ -69,15 +79,16 @@ export default function OwnStockPage() {
     [rows, year],
   )
 
-  // Strict check to get exact paid amount (preserves 0)
   const getPaidValue = (row) => {
+    if (row.transactions && Array.isArray(row.transactions)) {
+      return row.transactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0)
+    }
     if (row.paidAmount !== undefined && row.paidAmount !== null && row.paidAmount !== '') {
       return Number(row.paidAmount)
     }
-    return Number(row.totalAmount) || 0
+    return 0
   }
 
-  // Calculations for Grand Totals
   const totals = useMemo(() => {
     return visibleRows.reduce(
       (acc, row) => {
@@ -104,8 +115,6 @@ export default function OwnStockPage() {
   function updateField(key, value) {
     setForm((current) => {
       const updated = { ...current, [key]: value }
-
-      // Auto-calculate Total Amount if weight & rate are entered
       if (key === 'weightMaunds' || key === 'ratePerMaund') {
         const m = Number(key === 'weightMaunds' ? value : current.weightMaunds) || 0
         const r = Number(key === 'ratePerMaund' ? value : current.ratePerMaund) || 0
@@ -164,6 +173,26 @@ export default function OwnStockPage() {
 
       const paid = form.paidAmount !== '' ? Number(form.paidAmount) : 0
 
+      // Agar nayi entry hai aur kuch naqad diya gaya hai, toh usay transactions history mein dalen
+      let transactions = []
+      if (editingId) {
+        const existingRow = rows.find(r => r.id === editingId)
+        transactions = existingRow?.transactions || []
+        if (transactions.length === 0 && existingRow?.paidAmount > 0) {
+          transactions = [{
+            date: existingRow.date || form.date,
+            amount: Number(existingRow.paidAmount),
+            note: 'Initial payment'
+          }]
+        }
+      } else if (paid > 0) {
+        transactions = [{
+          date: form.date,
+          amount: paid,
+          note: 'Initial payment'
+        }]
+      }
+
       const payload = {
         type: OWN_PURCHASE,
         date: form.date,
@@ -172,8 +201,9 @@ export default function OwnStockPage() {
         ratePerMaund: rate,
         totalAmount: total,
         paidAmount: paid,
-        supplier: form.supplier,
-        note: form.note,
+        supplier: form.supplier || '',
+        note: form.note || '',
+        transactions,
       }
 
       if (editingId) {
@@ -188,6 +218,64 @@ export default function OwnStockPage() {
       notify(error.message || 'Could not save entry.', 'error')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Handle submitting additional payment with history tracking
+  async function handleAddPaymentSubmit(e) {
+    e.preventDefault()
+    if (!paymentModalRow) return
+    const addAmt = Number(additionalPayment)
+    if (!addAmt || addAmt <= 0) {
+      notify('Baraye meharbani theek rakam darj karein.', 'error')
+      return
+    }
+
+    setPaying(true)
+    try {
+      const currentPaid = getPaidValue(paymentModalRow)
+      const newPaid = currentPaid + addAmt
+      const total = Number(paymentModalRow.totalAmount) || 0
+
+      if (newPaid > total) {
+        notify('Ada ki gayi rakam kul rakam se zyada nahi ho sakti!', 'error')
+        setPaying(false)
+        return
+      }
+
+      let existingTransactions = paymentModalRow.transactions || []
+      // Backward compatibility if transactions array didn't exist before
+      if (existingTransactions.length === 0 && paymentModalRow.paidAmount > 0) {
+        existingTransactions = [{
+          date: paymentModalRow.date,
+          amount: Number(paymentModalRow.paidAmount),
+          note: 'Initial payment'
+        }]
+      }
+
+      const updatedTransactions = [
+        ...existingTransactions,
+        {
+          date: paymentDate,
+          amount: addAmt,
+          note: paymentNote || 'Additional payment'
+        }
+      ]
+
+      await updateOwnWheatEntry(paymentModalRow.id, {
+        paidAmount: newPaid,
+        transactions: updatedTransactions
+      })
+
+      notify('Rakam kamyaabi se adaa kar di gayi hai.')
+      setPaymentModalRow(null)
+      setAdditionalPayment('')
+      setPaymentNote('')
+      setPaymentDate(new Date().toISOString().slice(0, 10))
+    } catch (error) {
+      notify(error.message || 'Payment update nahi ho saki.', 'error')
+    } finally {
+      setPaying(false)
     }
   }
 
@@ -545,20 +633,41 @@ export default function OwnStockPage() {
                               </button>
                             </div>
                           ) : (
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {/* History Button */}
+                              <button
+                                type="button"
+                                onClick={() => setHistoryModalRow(row)}
+                                className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                                title="Adaigi ki History Dekhein"
+                              >
+                                <History className="h-3.5 w-3.5" /> History
+                              </button>
+
+                              {remaining > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setPaymentModalRow(row)}
+                                  className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                                  title="Mazeed Rakam Ada Karein"
+                                >
+                                  <CreditCard className="h-3.5 w-3.5" /> Pay
+                                </button>
+                              ) : null}
+
                               <button
                                 type="button"
                                 onClick={() => startEdit(row)}
-                                className="inline-flex items-center gap-1 rounded-full bg-wheat-100 px-3 py-1 text-xs font-semibold text-mill-800 hover:bg-wheat-200"
+                                className="inline-flex items-center gap-1 rounded-full bg-wheat-100 px-2.5 py-1 text-xs font-semibold text-mill-800 hover:bg-wheat-200"
                               >
                                 <Pencil className="h-3.5 w-3.5" /> Edit
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setPendingDelete(row)}
-                                className="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
                               >
-                                <Trash2 className="h-3.5 w-3.5" /> Delete
+                                <Trash2 className="h-3.5 w-3.5" /> Del
                               </button>
                             </div>
                           )}
@@ -593,6 +702,118 @@ export default function OwnStockPage() {
           </div>
         </section>
       </main>
+
+      {/* Additional Payment Modal */}
+      {paymentModalRow ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+            <h3 className="font-display text-xl font-bold text-mill-900">Rakam Adaigi Darj Karein</h3>
+            <p className="mt-1 text-xs text-stone-500">
+              Supplier: <span className="font-semibold text-stone-800">{paymentModalRow.supplier}</span> | Baqi Udhaar:{' '}
+              <span className="font-bold text-rose-600">
+                {formatPkr(Number(paymentModalRow.totalAmount || 0) - getPaidValue(paymentModalRow))}
+              </span>
+            </p>
+
+            <form onSubmit={handleAddPaymentSubmit} className="mt-4 space-y-4">
+              <Field
+                id="payment-date"
+                type="date"
+                label="Adaigi ki Tareekh (Date)"
+                value={paymentDate}
+                onChange={setPaymentDate}
+                required
+              />
+
+              <Field
+                id="additional-payment-amount"
+                type="number"
+                label="Kitni rakam abhi ada ki gayi hai? (PKR)"
+                value={additionalPayment}
+                onChange={setAdditionalPayment}
+                placeholder="maslan: 20000"
+                required
+              />
+
+              <Field
+                id="payment-note"
+                type="text"
+                label="Note / Tafseel (Optional)"
+                value={paymentNote}
+                onChange={setPaymentNote}
+                placeholder="maslan: Naqad diye ya account se..."
+              />
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentModalRow(null)
+                    setAdditionalPayment('')
+                    setPaymentNote('')
+                  }}
+                  className="rounded-full px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={paying}
+                  className="rounded-full bg-emerald-700 px-5 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+                >
+                  {paying ? 'Saving...' : 'Rakam Save Karein'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {/* History Modal */}
+      {historyModalRow ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <h3 className="font-display text-xl font-bold text-mill-900">Adaigi ki History (Transactions)</h3>
+                <p className="text-xs text-stone-500">Supplier: <span className="font-semibold text-stone-800">{historyModalRow.supplier}</span></p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryModalRow(null)}
+                className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-600 hover:bg-stone-200"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-60 overflow-y-auto space-y-2">
+              {(!historyModalRow.transactions || historyModalRow.transactions.length === 0) ? (
+                <p className="text-center text-xs text-stone-500 py-6">
+                  {historyModalRow.paidAmount > 0 
+                    ? `Initial Paid Amount: ${formatPkr(historyModalRow.paidAmount)} (Tareekh: ${historyModalRow.date})`
+                    : 'Koi adaigi record nahi mili.'}
+                </p>
+              ) : (
+                historyModalRow.transactions.map((tx, idx) => (
+                  <div key={idx} className="flex items-center justify-between rounded-2xl bg-wheat-50 p-3 text-xs border border-wheat-200">
+                    <div>
+                      <p className="font-bold text-stone-800">{tx.date}</p>
+                      <p className="text-stone-500">{tx.note || 'Adaigi'}</p>
+                    </div>
+                    <p className="font-bold text-emerald-700 text-sm">{formatPkr(tx.amount)}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-4 border-t pt-3 flex justify-between text-xs font-semibold text-stone-700">
+              <span>Kul Rakam: {formatPkr(historyModalRow.totalAmount)}</span>
+              <span className="text-emerald-700">Kul Ada Shuda: {formatPkr(getPaidValue(historyModalRow))}</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <ConfirmModal
         open={Boolean(pendingDelete)}

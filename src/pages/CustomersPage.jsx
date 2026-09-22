@@ -35,7 +35,6 @@ import { sortCustomersByName, TX_DEPOSIT, TX_WITHDRAWAL } from '../lib/customerL
 // Helper function to convert KG to Maunds (Mann)
 function formatMaundsFromKg(kg = 0) {
   const maunds = kg / 40
-  // Returns e.g. "60 mnd (2,400 kg)" or "2 mnd"
   return `${formatNumber(maunds, 1)} mnd`
 }
 
@@ -178,7 +177,6 @@ export default function CustomersPage() {
       setSaving(false)
     }
   }
-
 
   async function confirmDelete() {
     if (!pendingDelete || !db) return
@@ -351,7 +349,7 @@ export default function CustomersPage() {
           </div>
 
           {/* TOTAL SUMMARY BAR */}
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <div className="flex items-center gap-3.5 rounded-2xl border border-wheat-200 bg-wheat-50/60 p-4">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mill-800 text-wheat-100">
                 <Users className="h-5 w-5" />
@@ -359,6 +357,22 @@ export default function CustomersPage() {
               <div>
                 <p className="text-xs font-semibold text-stone-500">Total Households</p>
                 <p className="font-display text-xl font-bold text-mill-900">{visibleCustomers.length}</p>
+              </div>
+            </div>
+
+            {/* Total Initial / Opening Stock Card */}
+            <div className="flex items-center gap-3.5 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-800 text-blue-100">
+                <Scale className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-blue-800">Total Opening Stock</p>
+                <p className="font-display text-xl font-bold text-blue-950">
+                  {formatMaundsFromKg(totals.totalOpeningKg)}
+                  <span className="ml-1 text-xs font-normal text-blue-700">
+                    ({formatNumber(totals.totalOpeningKg)} kg)
+                  </span>
+                </p>
               </div>
             </div>
 
@@ -519,7 +533,6 @@ export default function CustomersPage() {
         onClose={() => setTxModal({ open: false, customer: null, type: TX_DEPOSIT })}
         onSubmit={handleSaveTransaction}
       />
-
 
       <CustomerLedgerModal
         open={Boolean(ledgerCustomer)}
