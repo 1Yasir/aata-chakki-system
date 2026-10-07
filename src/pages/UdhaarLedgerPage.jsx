@@ -11,6 +11,7 @@ import ConfirmModal from '../components/ConfirmModal'
 import UdhaarFormModal from '../components/UdhaarFormModal'
 import UdhaarWasooliModal from '../components/UdhaarWasooliModal'
 import UdhaarHistoryModal from '../components/UdhaarHistoryModal'
+import Pagination from '../components/Pagination'
 import { useToast } from '../context/ToastContext'
 import {
   addGeneralUdhaarCustomer,
@@ -56,6 +57,10 @@ export default function UdhaarLedgerPage() {
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(7)
 
   // Load Active/Deleted Udhaar Customers
   useEffect(() => {
@@ -153,6 +158,19 @@ export default function UdhaarLedgerPage() {
     return sortGeneralCustomersByName(filtered)
   }, [customers, search])
 
+  // Pagination logic calculations
+  const totalPages = Math.ceil(visibleCustomers.length / pageSize) || 1
+  const safePage = Math.min(currentPage, totalPages)
+  
+  if (safePage !== currentPage && totalPages > 0) {
+    setCurrentPage(safePage)
+  }
+
+  const paginatedCustomers = useMemo(() => {
+    const start = (safePage - 1) * pageSize
+    return visibleCustomers.slice(start, start + pageSize)
+  }, [visibleCustomers, safePage, pageSize])
+
   const totals = useMemo(() => {
     const today = todayIsoDate()
     const todayWasooliSum = allTransactions
@@ -171,7 +189,6 @@ export default function UdhaarLedgerPage() {
     [customers, historyCustomer],
   )
 
-  // Calculate Cumulative Aggregated Table Data for Each Customer
   const customerTransactionData = useMemo(() => {
     const data = {}
     customers.forEach((customer) => {
@@ -343,10 +360,8 @@ export default function UdhaarLedgerPage() {
     }
   }
 
-  // UPDATED: Customer Name and Phone mapping included in Backup Export
   async function exportUdhaarData() {
     try {
-      // 1. Export Customers Master List
       exportDataToCSV(
         visibleCustomers.map(({ id, name, phone, netUdhaarBalance, createdAt, isDeleted }) => ({
           id,
@@ -359,7 +374,6 @@ export default function UdhaarLedgerPage() {
         'udhaar_customers.csv',
       )
 
-      // 2. Fetch all transactions and attach Customer Name & Phone
       const transactionsBackup = await fetchCollectionDocs(GENERAL_UDHAAR_TRANSACTIONS_COLLECTION)
       const allCustomersList = await fetchCollectionDocs(GENERAL_UDHAAR_CUSTOMERS_COLLECTION)
       
@@ -512,7 +526,10 @@ export default function UdhaarLedgerPage() {
             <input
               type="search"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setCurrentPage(1)
+              }}
               placeholder="Search by customer name or phone number..."
               className="w-full rounded-xl border border-wheat-200 bg-wheat-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-wheat-400 focus:ring-2 focus:ring-wheat-400 transition"
             />
@@ -543,7 +560,7 @@ export default function UdhaarLedgerPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-wheat-100">
-                  {visibleCustomers.map((customer) => {
+                  {paginatedCustomers.map((customer) => {
                     const txData = customerTransactionData[customer.id] || {
                       latestDate: todayIsoDate(),
                       totalWeightKg: 0,
@@ -661,6 +678,19 @@ export default function UdhaarLedgerPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Reusable Pagination Component */}
+            <Pagination
+              currentPage={safePage}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              totalEntries={visibleCustomers.length}
+              onPageChange={(page) => setCurrentPage(page)}
+              onPageSizeChange={(size) => {
+                setPageSize(size)
+                setCurrentPage(1)
+              }}
+            />
           </section>
         )}
       </main>
