@@ -5,7 +5,7 @@ import {
   query,
   where,
 } from 'firebase/firestore'
-import { Banknote, Download, History, Pencil, Plus, RotateCcw, Search, Trash2, UserPlus, Wallet } from 'lucide-react'
+import { Banknote, Download, History, Pencil, Plus, RotateCcw, Search, Trash2, UserPlus, Wallet, SlidersHorizontal, X } from 'lucide-react'
 import AdminHeader from '../components/AdminHeader'
 import ConfirmModal from '../components/ConfirmModal'
 import UdhaarFormModal from '../components/UdhaarFormModal'
@@ -46,6 +46,10 @@ export default function UdhaarLedgerPage() {
   const [transactions, setTransactions] = useState([])
   const [showTrash, setShowTrash] = useState(false)
   const [search, setSearch] = useState('')
+  const [balanceFilter, setBalanceFilter] = useState('all') // 'all', 'under1000', '1000to5000', 'above5000', 'zero', 'custom'
+  const [customMin, setCustomMin] = useState('')
+  const [customMax, setCustomMax] = useState('')
+  const [sortBy, setSortBy] = useState('name') // 'name', 'highestBalance', 'lowestBalance'
   const [saving, setSaving] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [creditFormOpen, setCreditFormOpen] = useState(false)
@@ -146,17 +150,48 @@ export default function UdhaarLedgerPage() {
     return unsubscribe
   }, [historyCustomer, notify])
 
+  // Filter and Sorting Logic
   const visibleCustomers = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    const filtered = needle
+    
+    // 1. Search filter
+    let result = needle
       ? customers.filter(
           (customer) =>
             String(customer.name || '').toLowerCase().includes(needle) ||
             String(customer.phone || '').includes(needle),
         )
-      : customers
-    return sortGeneralCustomersByName(filtered)
-  }, [customers, search])
+      : [...customers]
+
+    // 2. Balance Range Filter
+    if (balanceFilter === 'under1000') {
+      result = result.filter((c) => (Number(c.netUdhaarBalance) || 0) > 0 && (Number(c.netUdhaarBalance) || 0) < 1000)
+    } else if (balanceFilter === '1000to5000') {
+      result = result.filter((c) => (Number(c.netUdhaarBalance) || 0) >= 1000 && (Number(c.netUdhaarBalance) || 0) <= 5000)
+    } else if (balanceFilter === 'above5000') {
+      result = result.filter((c) => (Number(c.netUdhaarBalance) || 0) > 5000)
+    } else if (balanceFilter === 'zero') {
+      result = result.filter((c) => (Number(c.netUdhaarBalance) || 0) === 0)
+    } else if (balanceFilter === 'custom') {
+      const min = customMin !== '' ? Number(customMin) : -Infinity
+      const max = customMax !== '' ? Number(customMax) : Infinity
+      result = result.filter((c) => {
+        const bal = Number(c.netUdhaarBalance) || 0
+        return bal >= min && bal <= max
+      })
+    }
+
+    // 3. Sorting
+    if (sortBy === 'highestBalance') {
+      result.sort((a, b) => (Number(b.netUdhaarBalance) || 0) - (Number(a.netUdhaarBalance) || 0))
+    } else if (sortBy === 'lowestBalance') {
+      result.sort((a, b) => (Number(a.netUdhaarBalance) || 0) - (Number(b.netUdhaarBalance) || 0))
+    } else {
+      result = sortGeneralCustomersByName(result)
+    }
+
+    return result
+  }, [customers, search, balanceFilter, customMin, customMax, sortBy])
 
   // Pagination logic calculations
   const totalPages = Math.ceil(visibleCustomers.length / pageSize) || 1
@@ -521,26 +556,107 @@ export default function UdhaarLedgerPage() {
             </div>
           </div>
 
-          <label className="relative mt-6 block">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value)
-                setCurrentPage(1)
-              }}
-              placeholder="Search by customer name or phone number..."
-              className="w-full rounded-xl border border-wheat-200 bg-wheat-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-wheat-400 focus:ring-2 focus:ring-wheat-400 transition"
-            />
-          </label>
+          {/* Search and Advanced Filters Bar */}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <label className="relative flex-1 min-w-[240px]">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value)
+                  setCurrentPage(1)
+                }}
+                placeholder="Search by customer name or phone number..."
+                className="w-full rounded-xl border border-wheat-200 bg-wheat-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-wheat-400 focus:ring-2 focus:ring-wheat-400 transition"
+              />
+            </label>
+
+            {/* Balance Range Filter Dropdown */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-stone-600">Balance:</span>
+              <select
+                value={balanceFilter}
+                onChange={(e) => {
+                  setBalanceFilter(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="rounded-xl border border-wheat-200 bg-wheat-50 px-3 py-2.5 text-xs font-semibold text-stone-700 outline-none focus:border-mill-800"
+              >
+                <option value="all">All Balances</option>
+                <option value="under1000">Under Rs 1,000</option>
+                <option value="1000to5000">Rs 1,000 - Rs 5,000</option>
+                <option value="above5000">Above Rs 5,000</option>
+                <option value="zero">Zero (Settled)</option>
+                <option value="custom">Custom Range (Min - Max)</option>
+              </select>
+            </div>
+
+            {/* Sorting Dropdown */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-stone-600">Sort:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => {
+                  setSortBy(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="rounded-xl border border-wheat-200 bg-wheat-50 px-3 py-2.5 text-xs font-semibold text-stone-700 outline-none focus:border-mill-800"
+              >
+                <option value="name">Customer Name (A-Z)</option>
+                <option value="highestBalance">Highest Balance First</option>
+                <option value="lowestBalance">Lowest Balance First</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Custom Min / Max Inputs (Appears only when 'custom' is selected) */}
+          {balanceFilter === 'custom' && (
+            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/40 p-3.5">
+              <span className="text-xs font-bold text-amber-900">Custom Amount Range:</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={customMin}
+                  onChange={(e) => {
+                    setCustomMin(e.target.value)
+                    setCurrentPage(1)
+                  }}
+                  placeholder="Min Rs (e.g. 500)"
+                  className="w-32 rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-800 outline-none focus:border-mill-800"
+                />
+                <span className="text-xs text-stone-500">to</span>
+                <input
+                  type="number"
+                  value={customMax}
+                  onChange={(e) => {
+                    setCustomMax(e.target.value)
+                    setCurrentPage(1)
+                  }}
+                  placeholder="Max Rs (e.g. 3000)"
+                  className="w-32 rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-800 outline-none focus:border-mill-800"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBalanceFilter('all')
+                  setCustomMin('')
+                  setCustomMax('')
+                }}
+                className="inline-flex items-center gap-1 rounded-full bg-stone-200 px-3 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-300 transition"
+              >
+                <X className="h-3 w-3" /> Clear Range
+              </button>
+            </div>
+          )}
         </section>
 
         {visibleCustomers.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-wheat-300 bg-white px-6 py-16 text-center text-stone-500">
             {showTrash
               ? 'Recycle Bin is empty. No deleted customers found.'
-              : 'No udhaar customers yet. Add a customer to start tracking their credit balance.'}
+              : 'No udhaar customers match your search or amount range criteria.'}
           </div>
         ) : (
           <section className="rounded-3xl border border-wheat-200 bg-white shadow-sm overflow-hidden">
